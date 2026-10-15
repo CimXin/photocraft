@@ -364,6 +364,11 @@ RISC-V (riscv64): `photocraft-<ver>-linux-riscv64.tar.gz` only, built against Ub
 |---|---|---|
 | Static site | `photocraft-web-<ver>.zip` | Runs in a modern browser; host it on any static server |
 
+This fork publishes that site with GitHub Pages at <https://cimxin.github.io/photocraft/>.
+Enable it once: **Settings → Pages → Build and deployment → Source: GitHub Actions**.
+HTTPS is required for WebGPU. Chinese, Japanese and Korean UI glyphs can still show as
+tofu until fonts are served next to the site. Details: [`packaging/web/README.md`](packaging/web/README.md#github-pages).
+
 ## The Crafting Apps
 
 PhotoCraft is one of the **Crafting Apps**: free, open-source creative tools from the

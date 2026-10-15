@@ -221,3 +221,92 @@ PhotoCraft renders with wgpu. It uses **WebGPU** when the browser has it and fal
 For example: `<iframe src="https://example.com/photocraft/?webgl" ...>`.
 
 A browser with neither WebGPU nor WebGL2 gets a message in place of the app.
+
+## GitHub Pages
+
+This fork publishes the same static site with GitHub Actions, for ongoing use at
+**https://cimxin.github.io/photocraft/** (a project site: the repository name is the path).
+
+### Enable it once
+
+GitHub does not turn Pages on by itself. `actions/configure-pages` cannot either: enabling
+Pages needs a token this workflow does not have. Before the first deploy:
+
+1. Merge the workflow on `main` (`.github/workflows/pages.yml`).
+2. Open **Settings → Pages → Build and deployment** and set **Source** to **GitHub Actions**.
+3. If the merge already started the workflow, its **Setup Pages** step stops immediately
+   while Pages is still off (before the WebAssembly build) and tells you to enable it.
+   Open **Actions → GitHub Pages** and re-run that workflow. Or start it with
+   **workflow_dispatch**.
+
+The workflow runs on every push to `main`, and when started by hand. It builds with
+`packaging/web/package.sh`, then `packaging/web/pages-stage.sh`, and deploys with
+`actions/upload-pages-artifact` and `actions/deploy-pages`. Publish the staged directory
+(the folder inside the zip, not the zip). Do not put that folder inside another
+`photocraft/` directory: project Pages already serves the artifact at `/photocraft/`.
+
+Relative asset URLs (`public_url = "./"`) are what makes that path work. Open the site with
+the trailing slash: `https://cimxin.github.io/photocraft/`.
+
+### HTTPS and WebGPU
+
+Pages serves the site over HTTPS. WebGPU and the clipboard only work in a secure context
+(`https://`, or `http://localhost`). Use the `https://cimxin.github.io` URL above.
+
+### Notices, and marks that are not included
+
+`pages-stage.sh` keeps `LICENSE-MIT`, `LICENSE-APACHE`, `NOTICE`, `ATTRIBUTION.md` and
+`HOSTING.md` (this file) next to `index.html`, and copies the font, icon, word-list and
+translation license texts into `licenses/`, including `docs/brand/LICENSE-brand.txt` (the
+terms only). It removes the repository `README.md` from the site, because that file embeds
+the ArtCraft wordmarks, and it deletes any `artcraft-logo*` / `artcraft-mark*` file. The
+landing page is the app (`index.html`), with a plain-text `README.txt`: this deployment is
+based on PhotoCraft by the ArtCraft team, and is not an ArtCraft product and not affiliated
+with Adobe. The PhotoCraft app icon is part of the app (MIT OR Apache-2.0); it is not an
+ArtCraft logo.
+
+### Memory and time on GitHub-hosted runners
+
+The `wasm-release` profile uses fat LTO. `.github/workflows/ci.yml` builds that on
+`ubuntu-latest` (the `web` job). The link or `wasm-opt` can still be killed with `SIGKILL`
+/ `cannot allocate memory` on a smaller machine — that is what the Dockerfile's builder
+flags are for, and the Pages workflow sets them so a memory kill does not fail the deploy:
+
+- `CARGO_PROFILE_WASM_RELEASE_LTO=thin`
+- `CARGO_BUILD_JOBS=1`
+
+`package.sh` still fails the build if any file exceeds 24 MiB. The wasm can be slightly
+larger than a release zip built with fat LTO. A runner that has the memory can switch back
+(`CARGO_PROFILE_WASM_RELEASE_LTO=fat`, `CARGO_BUILD_JOBS=4`, as the Dockerfile documents).
+A cold build is serial and can take one to two hours; the workflow's cargo and trunk caches
+shorten the next push. The job's time limit is 360 minutes.
+
+### CJK text on the web
+
+Chinese, Japanese and Korean UI glyphs can still show as empty boxes (tofu). The wasm build
+does not embed the optional craft-fonts (they push the module over the size gate), and the
+web build has no system fonts to fall back on. Serving fonts is optional and does not block
+Pages: set `PHOTOCRAFT_WEB_FONTS_DIR` to a craft-fonts checkout (or any folder in that
+manifest format) when running `package.sh`. See [Fonts](#fonts). This Pages workflow does
+not set that variable.
+
+### Dry run without a wasm build
+
+Staging can be checked on its own. It builds a fake site, checks the license files, checks
+that a root-absolute URL is rejected, and checks that ArtCraft mark files are removed:
+
+```sh
+packaging/web/pages-stage.sh --self-test
+```
+
+After a real package, stage that output and open it locally (any path prefix works the same
+way Pages will):
+
+```sh
+packaging/web/package.sh
+site="$(packaging/web/pages-stage.sh)"
+python3 -m http.server 8765 -d "$site"
+```
+
+`package.sh` needs [trunk](https://trunkrs.dev) (`cargo install trunk --locked`) and the
+`wasm32-unknown-unknown` target. `--self-test` needs neither.
