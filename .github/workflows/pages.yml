@@ -1,0 +1,117 @@
+# Publish the PhotoCraft web editor to GitHub Pages (project site).
+#
+# One-time setup, in the GitHub UI, before the first deploy can succeed:
+#   Settings → Pages → Build and deployment → Source: GitHub Actions.
+# Until that is set, actions/deploy-pages fails (the Pages site does not exist yet).
+# After a successful deploy the site is https://cimxin.github.io/photocraft/
+#
+# Build: packaging/web/package.sh (Trunk release builds of photocraft-web and
+# photocraft-web-boot, wasm cut into parts, relative URLs). Then
+# packaging/web/pages-stage.sh adds the license notices and drops ArtCraft marks.
+# Upload the staged directory itself — not the zip, and not an extra photocraft/
+# folder. Project Pages already serves the artifact at /<repo>/.
+#
+# Memory: the wasm-release profile is fat LTO. ci.yml's web job builds that on
+# ubuntu-latest. A smaller runner (or a Docker VM) can still die with SIGKILL
+# during the link or wasm-opt, so this job uses the Dockerfile's small-builder
+# overrides: thin LTO and CARGO_BUILD_JOBS=1. package.sh still enforces the
+# 24 MiB file cap. To match the release zip, set CARGO_PROFILE_WASM_RELEASE_LTO=fat
+# and raise CARGO_BUILD_JOBS (the Dockerfile uses 4 when the machine has the RAM).
+# A cold build is serial and can take one to two hours; cargo and trunk caches
+# shorten the next push. The job limit below is the hosted-runner maximum.
+name: GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Do not cancel a deploy that is already uploading. A newer push waits.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build web site
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    env:
+      TRUNK_VERSION: "0.21.14"
+      CARGO_TERM_COLOR: always
+      CARGO_PROFILE_WASM_RELEASE_LTO: thin
+      CARGO_BUILD_JOBS: "1"
+    steps:
+      - uses: actions/checkout@v4
+      # Fails fast when Pages is still off (enablement stays false: GITHUB_TOKEN cannot
+      # turn Pages on). Do this before the wasm build.
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: pages-web
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+          cache-on-failure: true
+      - name: Cache trunk tools
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/trunk
+          key: trunk-${{ env.TRUNK_VERSION }}-${{ runner.os }}
+      - name: Install trunk
+        run: |
+          set -euo pipefail
+          asset="trunk-x86_64-unknown-linux-gnu.tar.gz"
+          url="https://github.com/trunk-rs/trunk/releases/download/v${TRUNK_VERSION}"
+          cd /tmp
+          curl -fsSL --retry 3 -A Photocraft-dev "$url/$asset" -o "$asset"
+          curl -fsSL --retry 3 -A Photocraft-dev "$url/$asset.sha256" -o "$asset.sha256"
+          printf '%s  %s\n' "$(cat "$asset.sha256")" "$asset" | sha256sum -c -
+          tar -xzf "$asset" -C "$HOME/.cargo/bin" trunk
+          trunk --version
+      - name: Packaging tools
+        run: |
+          if ! command -v zip >/dev/null; then
+            sudo apt-get update
+            sudo apt-get install -y zip
+          fi
+      - name: Build static site
+        run: packaging/web/package.sh
+      - name: Stage Pages directory
+        id: stage
+        run: |
+          set -euo pipefail
+          site="$(packaging/web/pages-stage.sh)"
+          echo "site=$site" >> "$GITHUB_OUTPUT"
+          echo "Staged $site"
+          find "$site" -type f -printf '%s\t%p\n' | sort -n
+          {
+            echo "### GitHub Pages"
+            echo
+            echo "Expected URL: https://cimxin.github.io/photocraft/"
+            echo
+            echo "Open that HTTPS URL (WebGPU needs a secure context)."
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: ${{ steps.stage.outputs.site }}
+
+  deploy:
+    name: Deploy to GitHub Pages
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v5

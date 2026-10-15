@@ -6,6 +6,7 @@
 # Needs: trunk (brew install trunk / cargo install trunk --locked) and the wasm32-unknown-unknown
 # target. The zip holds a self-contained static site in photocraft-web-<version>/ that works
 # from any URL path and inside an <iframe>. Hosting notes: packaging/web/README.md.
+# GitHub Pages publishes that directory (not the zip): packaging/web/pages-stage.sh.
 #
 # The site holds the app's wasm gzipped and cut into parts (app/), started by the small
 # photocraft-web-boot module, so no file is larger than a part however large the app grows
