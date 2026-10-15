@@ -236,8 +236,9 @@ preference label has no entry in a language marked `complete_menus`. Not transla
 messages and errors (they stay English, also for agents), names that are user data (layers, styles,
 documents), strings assembled with `format!` that were not converted to `fmt`/`trn`. Not done yet:
 right-to-left layout inside panels and dialogs (the shell mirrors, `direction.rs`),
-locale-aware number and date formats, automatic language detection on the web build (native
-builds read `LANG`/`LC_*`, the macOS preferred languages and the Windows user locale).
+locale-aware number and date formats. This fork's web build defaults to Simplified Chinese
+rather than the browser's languages (native builds read `LANG`/`LC_*`, the macOS preferred
+languages and the Windows user locale).
 
 Camera Raw has explicit coverage for all ten available languages, including Korean and
 Simplified Chinese. Its contextual `cameraRaw` entries distinguish tonal regions,

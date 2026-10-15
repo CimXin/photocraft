@@ -104,7 +104,7 @@ pub fn start() {
         if let Some(el) = document.get_element_by_id("photocraft_loading") {
             match result {
                 Ok(()) => el.remove(),
-                Err(e) => el.set_inner_html(&format!("<p>PhotoCraft failed to start: {e:?}</p><p>A browser with WebGPU or WebGL2 is required.</p>")),
+                Err(e) => el.set_inner_html(&format!("<p>PhotoCraft 未能启动：{e:?}</p><p>需要支持 WebGPU 或 WebGL2 的浏览器。</p>")),
             }
         }
     });
@@ -182,11 +182,14 @@ fn load_font_manifest(served: Served, ctx: egui::Context) {
         }
         log::info!("photocraft-web: {} served font families", files.len());
         served.lock().unwrap_or_else(|e| e.into_inner()).files = files;
-        // The families for the font menus, and the script fallbacks (the manifest's `scripts`).
-        served_fonts::add_fonts(&fonts);
+        // `Ui` faces are canvas fallbacks only (packaging/web/cjk_font.py). They are not document fonts.
+        let document: Vec<_> = fonts.iter().filter(|f| !f.scripts.iter().any(|s| s == "Ui")).cloned().collect();
+        served_fonts::add_fonts(&document);
         // Fetch now the fallbacks of the scripts the browser's languages use (an Arabic reader gets
         // the Arabic font before typing); the rest is fetched when text or a font menu needs it.
         served_fonts::request_for_languages(browser_languages().iter().map(String::as_str));
+        // This fork's default UI is Simplified Chinese, including when the browser prefers English.
+        served_fonts::request_for_languages(["zh-Hans", "zh-Hant", "ja", "ko"]);
         ctx.request_repaint();
     });
 }
@@ -256,7 +259,15 @@ impl WebShell {
         let (fetch, arrived) = {
             let mut s = self.served.lock().unwrap_or_else(|e| e.into_inner());
             let mut fetch = Vec::new();
-            for family in requested {
+            // UI subsets are requested here, not via the font menu: a smaller face can paint
+            // Chinese and Korean chrome before the full typing face finishes downloading.
+            let mut wanted = requested;
+            for family in ["Noto Sans SC UI", "Noto Sans KR UI"] {
+                if s.files.contains_key(family) {
+                    wanted.push(family.to_owned());
+                }
+            }
+            for family in wanted {
                 if let Some(files) = s.files.get(&family).cloned()
                     && s.fetched.insert(family.clone())
                 {
@@ -265,6 +276,10 @@ impl WebShell {
             }
             (fetch, std::mem::take(&mut s.arrived))
         };
+        let eager = ["Noto Sans SC UI", "Noto Sans KR UI"];
+        let fallbacks = served_fonts::script_fallback_families();
+        let for_ui: Vec<(String, Vec<u8>)> =
+            arrived.iter().filter(|(family, _)| eager.contains(&family.as_str()) || fallbacks.iter().any(|name| name == family)).cloned().collect();
         for (family, file, integrity) in fetch {
             let served = self.served.clone();
             let ctx = ctx.clone();
@@ -278,7 +293,14 @@ impl WebShell {
                 }
             });
         }
-        served_fonts::install(&mut self.app, arrived);
+        // UI subsets stay out of the document font list; they only feed egui's canvas.
+        let for_engine: Vec<_> = arrived.into_iter().filter(|(family, _)| !eager.contains(&family.as_str())).collect();
+        served_fonts::install(&mut self.app, for_engine);
+        // egui draws canvas text from font bytes. CSS cannot supply them, and wasm cannot
+        // read the operating system's fonts, so the fetched faces become UI fallbacks too.
+        for (family, bytes) in for_ui {
+            photocraft_ui_egui::cjk_fonts::register_fallback_bytes(ctx, &format!("served-{family}"), bytes);
+        }
     }
 }
 

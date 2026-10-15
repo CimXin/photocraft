@@ -7,6 +7,21 @@ fn session() -> Session {
 }
 
 #[test]
+fn unset_interface_language_is_simplified_chinese_on_the_web() {
+    let lang = default_interface_language();
+    if cfg!(target_arch = "wasm32") {
+        assert_eq!(lang, "zh-hans");
+    } else {
+        assert_eq!(lang, "auto");
+    }
+    assert_eq!(Preferences::default().interface.language, lang);
+    // A preferences file that never stored a language keeps the build's default.
+    let mut legacy = Session::new();
+    legacy.load_prefs_json(r#"{"interface": {"theme": "studio"}}"#).unwrap();
+    assert_eq!(legacy.prefs().interface.language, lang);
+}
+
+#[test]
 fn defaults_match_photoshop() {
     let p = Preferences::default();
     assert_eq!(p.performance.history_states, 50);

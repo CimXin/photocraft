@@ -218,7 +218,7 @@ mod boot {
         let Ok(line) = document.create_element("p") else { return };
         line.set_text_content(Some(text));
         if reload && let Ok(link) = document.create_element("a") {
-            link.set_text_content(Some("Reload"));
+            link.set_text_content(Some("重新加载"));
             let _ = link.set_attribute("href", "");
             let _ = line.append_child(&link);
         }
@@ -235,10 +235,10 @@ mod boot {
                 };
                 web_sys::console::error_2(&JsValue::from_str("photocraft-web-boot: could not start PhotoCraft:"), &error);
                 let Some(&wait) = RETRY_AFTER.get(attempt) else {
-                    say("PhotoCraft couldn't be downloaded. Check your connection, then try again: ", true);
+                    say("无法下载 PhotoCraft。请检查网络连接后再试：", true);
                     return;
                 };
-                say("Loading PhotoCraft\u{2026} (the download failed, trying again)", false);
+                say("正在加载 PhotoCraft\u{2026}（下载失败，正在重试）", false);
                 sleep(wait).await;
                 attempt += 1;
             }

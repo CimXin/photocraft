@@ -71,6 +71,16 @@ from it is committed here. Per-file authors, sources and licences:
 | Shippori Mincho Regular (FONTDASU) | Japanese serif Type fallback (desktop) | SIL OFL 1.1, shipped as `OFL-shippori-mincho.txt` |
 | BIZ UDMincho Regular (Morisawa) | Japanese serif Type fallback (desktop) | SIL OFL 1.1, shipped as `OFL-biz-ud-mincho.txt` |
 
+### Web package CJK fallback (downloaded at package time, not files in this repo)
+
+`packaging/web/cjk-font.sh` downloads Noto Sans CJK subset OTFs at the `Sans2.004` tag,
+subsets them, and writes `fonts/noto/` into the web site. The binaries are not committed.
+The license file is copied to `fonts/noto/OFL.txt` in that site.
+
+| Font | Use | License |
+|---|---|---|
+| Noto Sans SC and Noto Sans KR (subsets of Noto Sans CJK 2.004) | Web UI and document CJK fallback | SIL OFL 1.1, [notofonts/noto-cjk](https://github.com/notofonts/noto-cjk/tree/Sans2.004) |
+
 The other built-in ICC profiles and the generated LUT looks are produced by code at runtime
 (`crates/cms/src/builtin.rs`, `crates/cms/src/lutfile.rs`) and dedicated to the public domain
 (CC0-1.0); they are not separate files.

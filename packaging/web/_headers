@@ -24,3 +24,11 @@
 /app/parts.txt
   ! Cache-Control
   Cache-Control: no-cache
+
+# The CJK faces keep stable names, so they revalidate. The manifest changes with the subset.
+/fonts/*
+  Cache-Control: public, max-age=86400
+
+/fonts/manifest.txt
+  ! Cache-Control
+  Cache-Control: no-cache

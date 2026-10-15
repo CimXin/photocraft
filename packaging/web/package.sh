@@ -95,6 +95,24 @@ if [ -n "${PHOTOCRAFT_WEB_FONTS_DIR:-}" ]; then
     cp "$PHOTOCRAFT_WEB_FONTS_DIR/$f" "$WORK/$NAME/$f"
   done
   echo "served fonts: $(grep -cvE '^[[:space:]]*(#|$)' "$FONTS_MANIFEST") manifest lines from $PHOTOCRAFT_WEB_FONTS_DIR"
+elif [ "${PHOTOCRAFT_WEB_SKIP_CJK_FONT:-}" = "1" ]; then
+  echo "warning: skipping CJK web fonts (PHOTOCRAFT_WEB_SKIP_CJK_FONT=1); CJK canvas text will be missing glyphs" >&2
+else
+  # This fork's Pages build. Wasm cannot read system fonts; subset Noto Sans CJK (OFL)
+  # into fonts/ next to the page. PHOTOCRAFT_WEB_FONTS_DIR replaces this step.
+  bash "$HERE/cjk-font.sh" "$WORK/$NAME"
+fi
+# Tab icon for the static site. The mark is the PhotoCraft app icon (MIT OR Apache-2.0),
+# not an ArtCraft logo. index.html links these stable names; Trunk does not hash them.
+cp "$ROOT/assets/app-icon/photocraft.ico" "$WORK/$NAME/favicon.ico"
+cp "$ROOT/assets/app-icon/hicolor/32x32/apps/ai.storyteller.photocraft.png" "$WORK/$NAME/favicon-32.png"
+cp "$ROOT/assets/app-icon/hicolor/256x256/apps/ai.storyteller.photocraft.png" "$WORK/$NAME/apple-touch-icon.png"
+for icon in favicon.ico favicon-32.png apple-touch-icon.png; do
+  [ -f "$WORK/$NAME/$icon" ] || { echo "error: missing $icon in the site" >&2; exit 1; }
+done
+if ! grep -q 'href="favicon.ico"' "$WORK/$NAME/index.html" || ! grep -q 'rel="apple-touch-icon"' "$WORK/$NAME/index.html"; then
+  echo "error: index.html does not link the favicon" >&2
+  exit 1
 fi
 largest=0
 while IFS= read -r file; do
