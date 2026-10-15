@@ -21,7 +21,9 @@
 //! Builds made with the optional craft-fonts input (`CRAFT_FONTS_DIR`,
 //! [`photocraft_text::craft_fonts`]) carry Japanese fonts (BIZ UDPGothic first): they are tried
 //! before the system Japanese fonts, in the Japanese slot of the same locale order. Without
-//! craft-fonts (and on the web, which never embeds them) nothing changes.
+//! craft-fonts (and on the web, which never embeds them) the scan finds nothing. The web shell
+//! can still register fetched font bytes with [`register_fallback_bytes`]: wasm has no system
+//! font files, and egui draws canvas text from those bytes rather than from CSS.
 
 use egui::epaint::text::{FontInsert, FontPriority, InsertFontFamily};
 use egui::{FontData, FontFamily, FontId, Shape};
@@ -78,6 +80,8 @@ impl Sources {
             embedded: craft_embedded,
         }
     }
+    /// Wasm cannot see OS font files. CSS `system-ui` styles the HTML loading text only.
+    /// Fetched faces are registered with [`register_fallback_bytes`].
     #[cfg(target_arch = "wasm32")]
     pub fn system() -> Self {
         Self {
@@ -348,6 +352,17 @@ fn baseline_offset(face: (f32, f32, f32), primary: (f32, f32, f32)) -> f32 {
     if off.is_finite() { off.clamp(-0.5, 0.5) } else { 0.0 }
 }
 
+/// Registers owned font bytes as a lowest-priority fallback in every UI family.
+/// The web shell calls this when a served CJK face arrives. Empty or oversized input is ignored.
+pub fn register_fallback_bytes(ctx: &egui::Context, name: &str, bytes: Vec<u8>) {
+    if bytes.is_empty() || bytes.len() as u64 > MAX_FONT_BYTES {
+        let n = bytes.len();
+        log::warn!("UI font fallback: ignoring {name} ({n} bytes)");
+        return;
+    }
+    add_to_all_families(ctx, name.to_owned(), FontData::from_owned(bytes));
+}
+
 /// Registers `name` at the lowest priority in every font family.
 fn add_to_all_families(ctx: &egui::Context, name: String, mut data: FontData) {
     // Align to Inter, the primary of every UI family; JetBrains Mono differs by under 0.005em.
@@ -427,6 +442,26 @@ pub fn install_with(ctx: &egui::Context, sources: Sources) {
 mod tests {
     use super::*;
     use std::sync::Mutex;
+
+    #[test]
+    fn served_bytes_join_every_ui_family_at_lowest_priority() {
+        let ctx = egui::Context::default();
+        crate::theme::install_fonts(&ctx);
+        ctx.run_ui(Default::default(), |_| {}).textures_delta.clear();
+        let name = "served-test";
+        register_fallback_bytes(&ctx, name, include_bytes!("../../../assets/fonts/Inter-Regular.ttf").to_vec());
+        register_fallback_bytes(&ctx, "empty", Vec::new());
+        for _ in 0..2 {
+            ctx.run_ui(Default::default(), |_| {}).textures_delta.clear();
+        }
+        let fonts = ctx.fonts(|f| f.definitions().clone());
+        assert!(fonts.font_data.contains_key(name));
+        assert!(!fonts.font_data.contains_key("empty"));
+        for stack in fonts.families.values() {
+            assert_eq!(stack.iter().filter(|n| *n == name).count(), 1);
+            assert_eq!(stack.last().map(String::as_str), Some(name));
+        }
+    }
 
     #[test]
     fn lazy_fallbacks_follow_ui_font_size_and_survive_size_changes() {

@@ -78,9 +78,9 @@ jobs:
           trunk --version
       - name: Packaging tools
         run: |
-          if ! command -v zip >/dev/null; then
+          if ! command -v zip >/dev/null || ! python3 -m pip --version >/dev/null 2>&1; then
             sudo apt-get update
-            sudo apt-get install -y zip
+            sudo apt-get install -y zip python3-pip
           fi
       - name: Build static site
         run: packaging/web/package.sh

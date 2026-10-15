@@ -70,7 +70,8 @@ engine localization or native review is complete.
   Urdu and other right-to-left codes (`direction.rs`), but panel interiors, dialogs, menu rows,
   submenus and document tabs stay left to right. UI labels also lack an Arabic fallback font, and
   egui 0.36 joins letters within a word but orders a line's words left to right (no bidi).
-- Web build: no browser-locale detection, no CJK web fonts.
+- Web build: browser `Accept-Language` is not the default (this fork opens unset sessions in
+  zh-Hans). CJK canvas text uses a Noto Sans CJK subset fetched beside the page, not system fonts.
 - WebAssembly plug-ins disappear from Filter › Plug-ins when the UI isn't English (#2540).
 - A user couldn't find the language option (#2532): it is in Preferences › Interface.
 
@@ -87,3 +88,4 @@ engine localization or native review is complete.
 | 2026-10-12 | minor | Spanish: 1,276 runtime-only labels added (filter and adjustment parameters, Camera Raw, panels, dialogs and status wrappers); generated-label coverage test added |
 | 2026-10-12 | minor | Italian native-speaker review: mistranslations (Trap, HDR Toning, Display Text) and phrasing fixed |
 | 2026-10-12 | minor | Serbian (`sr`, Latin, Ekavian) catalog: every measured key plus the dynamic labels of the other catalogs |
+| 2026-10-15 | minor | Fork web default is zh-Hans; Pages fetches a Noto Sans CJK subset because wasm cannot read system fonts |

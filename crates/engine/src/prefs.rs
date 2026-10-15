@@ -263,9 +263,10 @@ pub struct Interface {
     /// Document border in standard screen mode.
     pub canvas_border: CanvasBorder,
     pub ui_scale: UiScale,
-    /// UI language: `auto` (follow the system) or a language code such as `en`, `ja`. The list of
-    /// languages belongs to the shell (`ui-egui` i18n); an unknown code falls back to `auto`.
-    /// Command ids and the control protocol stay English.
+    /// UI language: `auto` (follow the system) or a language code such as `en`, `ja`, `zh-hans`.
+    /// Native builds default to `auto`. This fork's web build defaults to `zh-hans`. The list of
+    /// languages belongs to the shell (`ui-egui` i18n); an unknown code falls back to the system
+    /// language. Command ids and the control protocol stay English.
     pub language: String,
     pub ui_font_size: UiFontSize,
     pub show_channels_in_color: bool,
@@ -293,6 +294,19 @@ pub struct Interface {
     pub notification_duration_seconds: u32,
 }
 
+/// `auto` on native builds (follow the OS). `zh-hans` on the web build: this fork's Pages
+/// site opens in Simplified Chinese when the visitor has not chosen a language.
+pub fn default_interface_language() -> &'static str {
+    #[cfg(target_arch = "wasm32")]
+    {
+        "zh-hans"
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        "auto"
+    }
+}
+
 impl Default for Interface {
     fn default() -> Self {
         Self {
@@ -307,7 +321,7 @@ impl Default for Interface {
             show_home_recent_files: true,
             canvas_border: CanvasBorder::DropShadow,
             ui_scale: UiScale::Auto,
-            language: "auto".into(),
+            language: default_interface_language().to_owned(),
             ui_font_size: UiFontSize::Small,
             show_channels_in_color: false,
             dynamic_color_sliders: true,

@@ -71,8 +71,10 @@ The native-only, pinned `sys-locale` dependency provides safe Rust access to the
 override falls back to English. Empty overrides use the system. Unix locale variables do not
 override Windows/macOS UI-language preferences. Tags are read once per process (at most 64,
 128 bytes each) and matched against the supported language registry. Changes to the
-OS language list itself take effect at the next launch. The web build keeps its existing
-English Auto fallback until browser-locale detection is implemented.
+OS language list itself take effect at the next launch. This fork's web build does not read
+`navigator.languages`: with no saved preference, and when the preference is still `auto`, the
+UI is Simplified Chinese (`zh-hans`). A saved language code still wins, and the language menu
+is unchanged. Native builds keep `auto` (follow the OS; English when nothing matches).
 
 API implementation and licensing: [sys-locale](https://github.com/1Password/sys-locale).
 
@@ -123,8 +125,12 @@ Other languages retain the system's CJK fallback preference for document names a
 
 Font files are not added to this repository. Native rendering uses installed system fonts
 and the optional craft-fonts build input; see [Fonts](development.md#fonts-craft-fonts).
-The web build can select every catalog, but CJK glyph delivery and automatic browser-locale
-detection remain separate outstanding work. Switching catalogs does not supply missing fonts.
+The web build can select every catalog. egui draws canvas text from font bytes: CSS
+`system-ui` styles only the HTML loading line, and wasm has no OS font files to read
+(the Local Font Access API needs a permission prompt and is not in every browser). The web
+package therefore subsets Noto Sans CJK at package time and the page fetches those files;
+see [CJK text on the web](../packaging/web/README.md#cjk-text-on-the-web). Switching catalogs
+does not embed a font by itself.
 
 ## Add or maintain a catalog
 

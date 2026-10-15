@@ -67,10 +67,15 @@ stage() {
   : >"$site/.nojekyll"
 
   for f in index.html HOSTING.md README.txt LICENSE-MIT LICENSE-APACHE NOTICE ATTRIBUTION.md .nojekyll \
+           favicon.ico favicon-32.png apple-touch-icon.png \
            licenses/LICENSE-brand.txt licenses/OFL-Inter.txt licenses/OFL-JetBrainsMono.txt \
            licenses/LICENSE-lucide.txt licenses/LICENSE-SCOWL.txt licenses/LICENSE-translations.txt; do
     [ -f "$site/$f" ] || { echo "error: staged site is missing $f" >&2; return 1; }
   done
+  if ! grep -q 'href="favicon.ico"' "$site/index.html" || ! grep -q 'rel="apple-touch-icon"' "$site/index.html"; then
+    echo "error: index.html does not link the favicon" >&2
+    return 1
+  fi
   if [ -d "$site/docs/brand" ]; then
     echo "error: docs/brand is still in the staged site" >&2
     return 1
@@ -96,12 +101,18 @@ self_test() {
   mkdir -p "$site/app" "$site/docs/brand" "$site/extra"
   cat >"$site/index.html" <<'EOF'
 <!DOCTYPE html>
-<html><head><title>PhotoCraft</title></head>
+<html><head><title>PhotoCraft</title>
+<link rel="icon" href="favicon.ico" sizes="any">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+</head>
 <body>
 <script src="./photocraft-web-boot.js"></script>
 <a href="./app/parts.txt">parts</a>
 </body></html>
 EOF
+  printf 'ico' >"$site/favicon.ico"
+  printf 'png' >"$site/favicon-32.png"
+  printf 'png' >"$site/apple-touch-icon.png"
   echo '<img alt="ArtCraft" src="docs/brand/artcraft-logo.svg">' >"$site/README.md"
   echo '<svg xmlns="http://www.w3.org/2000/svg"></svg>' >"$site/docs/brand/artcraft-logo.svg"
   echo 'mark' >"$site/extra/artcraft-mark.png"
@@ -113,6 +124,8 @@ EOF
   [ ! -e "$site/docs/brand" ]
   [ ! -f "$site/extra/artcraft-mark.png" ]
   [ -f "$site/app/parts.txt" ]
+  [ -f "$site/favicon.ico" ]
+  grep -q 'href="favicon.ico"' "$site/index.html"
   grep -q 'based on PhotoCraft by the ArtCraft team' "$site/README.txt"
   grep -q 'not affiliated with' "$site/README.txt"
   grep -q 'LICENSE-MIT' "$site/NOTICE"

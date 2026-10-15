@@ -7,9 +7,16 @@ const MAX_SYSTEM_TAGS: usize = 64;
 #[cfg(not(target_arch = "wasm32"))]
 const MAX_SYSTEM_TAG_BYTES: usize = 128;
 
+/// Locale tags the web build substitutes for a system language. This fork's Pages site
+/// opens in Simplified Chinese. `navigator.languages` is not consulted: an English browser
+/// would otherwise hide that default. The language menu still selects every catalog.
+#[cfg_attr(not(any(test, target_arch = "wasm32")), allow(dead_code))]
+pub const WEB_DEFAULT_TAGS: &[&str] = &["zh-Hans"];
+
 /// Resolve Auto against the current registry. Cache the OS's tags, rather than a language,
 /// so matching remains separate from platform detection.
-/// Missing or unsupported system preferences always resolve to English.
+/// Missing or unsupported system preferences always resolve to English. On the web build the
+/// tag list above is supported, so Auto resolves to Simplified Chinese.
 pub fn system_lang() -> Lang {
     #[cfg(test)]
     {
@@ -54,7 +61,7 @@ fn detect_system_tags() -> Vec<String> {
 
 #[cfg(all(not(test), target_arch = "wasm32"))]
 fn detect_system_tags() -> Vec<String> {
-    Vec::new()
+    WEB_DEFAULT_TAGS.iter().map(|tag| (*tag).to_string()).collect()
 }
 
 #[cfg(test)]
@@ -79,6 +86,13 @@ pub(super) fn with_system_tags<R>(tags: &[&str], run: impl FnOnce() -> R) -> R {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_web_build_resolves_auto_to_simplified_chinese() {
+        let tags: Vec<String> = WEB_DEFAULT_TAGS.iter().map(|tag| (*tag).to_string()).collect();
+        assert_eq!(resolve(&tags).code(), "zh-hans");
+        assert_eq!(resolve(&[]).code(), "en", "an empty tag list is still English; the web build does not use one");
+    }
 
     #[test]
     fn system_preferences_are_negotiated_in_order() {

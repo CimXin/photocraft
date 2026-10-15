@@ -151,8 +151,9 @@ Local test: `python3 -m http.server 8765` inside the folder, then open http://lo
 
 ## Fonts
 
-The app has two fonts of its own, Inter and JetBrains Mono: a browser offers no system fonts, and
-embedding more would push the wasm over the size gate. A host can serve more fonts next to the
+The app has two fonts of its own, Inter and JetBrains Mono. A browser's CSS fonts do not reach
+egui's canvas, and embedding a full CJK face would push the wasm over the size gate. A host can
+serve more fonts next to the
 app. They show in the font menus straight away, and a family's files are downloaded the first time
 it is picked or a document's text needs it, so starting the app costs one small text file.
 
@@ -283,12 +284,24 @@ shorten the next push. The job's time limit is 360 minutes.
 
 ### CJK text on the web
 
-Chinese, Japanese and Korean UI glyphs can still show as empty boxes (tofu). The wasm build
-does not embed the optional craft-fonts (they push the module over the size gate), and the
-web build has no system fonts to fall back on. Serving fonts is optional and does not block
-Pages: set `PHOTOCRAFT_WEB_FONTS_DIR` to a craft-fonts checkout (or any folder in that
-manifest format) when running `package.sh`. See [Fonts](#fonts). This Pages workflow does
-not set that variable.
+egui draws the editor on a canvas from font files. The loading line above the canvas is
+ordinary HTML, so `system-ui` and a CJK stack (`PingFang SC`, `Microsoft YaHei`, …) can
+draw it. That CSS does not reach menu labels, panels or type layers.
+
+Wasm also has no portable way to read the operating system's fonts. There is no filesystem
+font scan, fontique's system backend is not linked, and the Local Font Access API
+(`queryLocalFonts`) asks for a permission, needs a user gesture, and is missing in Firefox
+and Safari. A Pages visitor would still see empty boxes if the app waited on that API.
+
+`package.sh` therefore downloads the pinned Noto Sans CJK subset OTFs (SIL OFL 1.1, tag
+`Sans2.004`) and subsets them into `fonts/` (see `cjk_font.py`). Two small faces cover the
+UI catalogs, kana, punctuation and the hangul used in the menus, and load first. Two larger
+faces cover the basic CJK ideograph block and hangul syllables for typing. Nothing is
+committed to the repository. Han uses the Simplified Chinese forms in that face.
+
+Set `PHOTOCRAFT_WEB_FONTS_DIR` to replace this step with another manifest, or
+`PHOTOCRAFT_WEB_SKIP_CJK_FONT=1` to ship no CJK faces (canvas CJK is then missing glyphs).
+The Pages workflow does neither: the subset is part of the site.
 
 ### Dry run without a wasm build
 
