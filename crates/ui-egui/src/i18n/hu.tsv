@@ -453,7 +453,6 @@
 	Artboard Guides	Rajztábla-segédvonalak
 	Artboards to Files	Rajztáblák fájlokba
 	Artboards to PDF	Rajztáblák PDF-be
-	ArtCraft Website	ArtCraft-weboldal
 	Average	Átlag
 	Background From Layer	Háttér a rétegből
 	Bitmap…	Bittérkép…
@@ -618,7 +617,6 @@
 	Inverse	Megfordítás
 	Iris Blur…	Íriszelmosás…
 	Join the ArtCraft Discord	Csatlakozás az ArtCraft Discordhoz
-	Join the ArtCraft Discord…	Csatlakozás az ArtCraft Discordhoz…
 	Language	Nyelv
 	Language Options	Nyelvi beállítások
 	Large	Nagy
@@ -713,7 +711,6 @@
 	Pattern Preview	Mintázat előnézete
 	PhotoCraft	PhotoCraft
 	PhotoCraft on GitHub	PhotoCraft a GitHubon
-	PhotoCraft Website	PhotoCraft-weboldal
 	Photography	Fotózás
 	Picture Frame…	Képkeret…
 	Pinch…	Becsípés…
@@ -3056,7 +3053,6 @@ cameraRaw	Yellow	Sárga
 	Arch	Boltív
 	Area	Terület
 	Artboard Tool	Rajztábla
-	ArtCraft	ArtCraft
 	Ask	Rákérdezés
 	Aspect Ratio	Oldalarány
 	Assign Profile	Profil hozzárendelése
@@ -3313,7 +3309,6 @@ cameraRaw	Yellow	Sárga
 	Interval	Intervallum
 	Invalid {mode} profile	Érvénytelen profil ({mode})
 	Its layers don't fit the GPU memory budget. Raising Memory usage in Preferences › Performance raises the budget, up to a quarter of this computer's memory.	A dokumentum rétegei nem férnek el a GPU memóriakeretében. Ha a Beállítások › Teljesítmény alatt növeled a memóriahasználatot, a keret is nő, legfeljebb a számítógép memóriájának negyedéig.
-	Join us on Discord	Csatlakozz hozzánk a Discordon
 	Keep Using CPU	Marad a CPU
 	Kernel	Szűrőmag
 	Keyboard	Billentyűzet
@@ -3433,7 +3428,6 @@ cameraRaw	Yellow	Sárga
 	Perimeter	Kerület
 	Perspective Crop Tool	Perspektivikus körbevágás
 	PhotoCraft is using the CPU image compositor. The window may still use your graphics adapter.	A PhotoCraft a CPU-s képösszeállítót használja. Az ablak megjelenítése ettől még használhatja a grafikus adaptert.
-	PhotoCraft website	PhotoCraft-weboldal
 	PhotoCraft — Screen Color Picker	PhotoCraft — Képernyő-színválasztó
 	Photomerge	Fotóegyesítés
 	Pick a screen pixel or press Esc to cancel	Válassz egy pixelt a képernyőn, vagy nyomd meg az Esc billentyűt a megszakításhoz

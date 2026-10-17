@@ -530,11 +530,8 @@
 
 # Help
 	About PhotoCraft	О программе PhotoCraft
-	PhotoCraft Website	Сайт PhotoCraft
 	PhotoCraft on GitHub	PhotoCraft на GitHub
 	Report an Issue…	Сообщить о проблеме…
-	ArtCraft Website	Сайт ArtCraft
-	Join the ArtCraft Discord…	Discord сообщества ArtCraft…
 	System Info…	Информация о системе…
 
 # Tools and options bar
@@ -1670,9 +1667,6 @@
 	Preserve Transparency	Сохранить прозрачность
 	Reverse	Обратить
 	Align with layer	По слою
-	Join us on Discord	Мы в Discord
-	PhotoCraft website	Сайт PhotoCraft
-	ArtCraft	ArtCraft
 	GitHub	GitHub
 	No character style	Нет стиля символов
 	No author	Нет автора

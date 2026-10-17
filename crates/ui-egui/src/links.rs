@@ -1,20 +1,25 @@
-//! Community and project links: the Help menu, the About dialog, the start screen and the title
-//! bar all open these. URLs follow the crafting-app pattern (`getartcraft.com/apps/<app>`,
-//! `github.com/storytold/<app>`).
+//! Project links for this fork. The Help menu, the About dialog, the start screen and the
+//! title-bar button all open [`GITHUB`].
 
 use serde_json::{Value, json};
 
 use crate::PhotocraftApp;
 
-pub const DISCORD: &str = "https://discord.gg/artcraft";
-pub const ARTCRAFT_WEBSITE: &str = "https://getartcraft.com";
-pub const APP_PAGE: &str = "https://getartcraft.com/apps/photocraft";
-pub const GITHUB: &str = "https://github.com/storytold/photocraft";
-pub const ISSUES: &str = "https://github.com/storytold/photocraft/issues";
+/// `https://github.com/CimXin/photocraft` plus an optional path. One slug, so Help, the start
+/// screen and the title bar cannot drift apart.
+macro_rules! fork_url {
+    ($suffix:literal) => {
+        concat!("https://github.com/CimXin/photocraft", $suffix)
+    };
+}
+
+/// This fork's repository. Retarget every in-app GitHub link by editing `fork_url`.
+pub const GITHUB: &str = fork_url!("");
+/// Issue tracker for [`GITHUB`].
+pub const ISSUES: &str = fork_url!("/issues");
 
 /// Help-menu link commands: (id, url). Labels live in `menus::UI_COMMANDS`.
-pub const COMMANDS: &[(&str, &str)] =
-    &[("help.discord", DISCORD), ("help.website", APP_PAGE), ("help.artcraftWebsite", ARTCRAFT_WEBSITE), ("help.github", GITHUB), ("help.reportIssue", ISSUES)];
+pub const COMMANDS: &[(&str, &str)] = &[("help.github", GITHUB), ("help.reportIssue", ISSUES)];
 
 pub fn url_for(id: &str) -> Option<&'static str> {
     COMMANDS.iter().find(|c| c.0 == id).map(|c| c.1)
@@ -32,24 +37,16 @@ pub fn open(app: &mut PhotocraftApp, ctx: &egui::Context, url: &str) -> Value {
     json!({"url": url})
 }
 
-/// The prominent "Join us on Discord" button.
-pub fn discord_button(app: &mut PhotocraftApp, ui: &mut egui::Ui, min_width: f32) -> egui::Response {
-    let r = crate::widgets::primary_button(ui, tl!("Join us on Discord"), min_width).on_hover_text(DISCORD);
-    if r.clicked() {
-        open(app, ui.ctx(), DISCORD);
-    }
-    r
-}
-
-/// "PhotoCraft website · GitHub · ArtCraft" as links, centred. Clicks route through [`open`] (the
-/// platform browser service) rather than `ui.hyperlink_to`, which uses the unreliable `ctx.open_url`.
+/// "GitHub" as a centred link. Clicks route through [`open`] (the platform browser service)
+/// rather than `ui.hyperlink_to`, which uses the unreliable `ctx.open_url`.
 pub fn link_row(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     let t = crate::theme::Tokens::get(ui.ctx());
-    let links = [(tl!("PhotoCraft website"), APP_PAGE), (tl!("GitHub"), GITHUB), (tl!("ArtCraft"), ARTCRAFT_WEBSITE)];
+    let links = [(tl!("GitHub"), GITHUB)];
     let font = egui::FontId::proportional(12.5);
     let sep = "  ·  ";
-    let width: f32 = links.iter().map(|(l, _)| ui.painter().layout_no_wrap((*l).into(), font.clone(), t.text).size().x).sum::<f32>()
-        + 2.0 * ui.painter().layout_no_wrap(sep.into(), font.clone(), t.text).size().x;
+    let sep_w = ui.painter().layout_no_wrap(sep.into(), font.clone(), t.text).size().x;
+    let gaps = links.len().saturating_sub(1) as f32;
+    let width: f32 = links.iter().map(|(l, _)| ui.painter().layout_no_wrap((*l).into(), font.clone(), t.text).size().x).sum::<f32>() + gaps * sep_w;
     let mut clicked: Option<&str> = None;
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 0.0;
@@ -74,7 +71,7 @@ mod tests {
 
     #[test]
     fn links_open_through_the_platform_service() {
-        // Issue #14: links (Help menu, Discord button, start-page links) must open in the browser.
+        // Issue #14: links (Help menu, start-page links, title-bar button) must open in the browser.
         // They route through the `open_url` service rather than the unreliable `ctx.open_url`.
         use std::sync::{Arc, Mutex};
         let opened: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
@@ -93,16 +90,16 @@ mod tests {
             crate::menus::invoke(&mut app, &ctx, id, json!({})).unwrap();
             assert_eq!(opened.lock().unwrap().last().map(String::as_str), Some(*url), "{id}");
         }
-        // The direct open() helper (Discord button / start-page links) also uses it.
-        open(&mut app, &ctx, DISCORD);
-        assert_eq!(opened.lock().unwrap().last().map(String::as_str), Some(DISCORD));
+        // The direct open() helper (start-page link / title-bar button) also uses it.
+        open(&mut app, &ctx, GITHUB);
+        assert_eq!(opened.lock().unwrap().last().map(String::as_str), Some(GITHUB));
     }
 
     #[test]
     fn help_menu_lists_links_then_separator_then_system_info_and_about() {
         let app = PhotocraftApp::new(photocraft_engine::Session::new(), Default::default());
         let help: Vec<String> = crate::menus::menu_items(&app).into_iter().filter(|i| i.path == ["Help"]).map(|i| i.id).collect();
-        assert_eq!(help, ["help.discord", "help.website", "help.artcraftWebsite", "help.github", "help.reportIssue", "---", "help.systemInfo", "help.about"]);
+        assert_eq!(help, ["help.github", "help.reportIssue", "---", "help.systemInfo", "help.about"]);
         for (id, _) in COMMANDS {
             assert!(crate::menus::is_live(id) && crate::menus::is_enabled(&app, id), "{id}");
         }
@@ -112,11 +109,9 @@ mod tests {
     fn link_commands_open_their_urls() {
         let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), Default::default());
         let ctx = egui::Context::default();
-        for (id, url) in [
-            ("help.discord", "https://discord.gg/artcraft"),
-            ("help.website", "https://getartcraft.com/apps/photocraft"),
-            ("help.github", "https://github.com/storytold/photocraft"),
-        ] {
+        assert_eq!(GITHUB, "https://github.com/CimXin/photocraft");
+        assert_eq!(ISSUES, "https://github.com/CimXin/photocraft/issues");
+        for (id, url) in [("help.github", GITHUB), ("help.reportIssue", ISSUES)] {
             let r = crate::menus::invoke(&mut app, &ctx, id, serde_json::json!({})).unwrap();
             assert_eq!(r["url"], url);
             assert_eq!(app.ui.status, format!("Opened {url}"));

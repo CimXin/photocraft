@@ -679,14 +679,53 @@ mod tests {
 
     #[test]
     fn the_title_bar_promotes_no_community_chat() {
-        // Issue #1726: only the always-visible title-bar button is removed. The start-screen
-        // and About buttons and Help › Discord remain available.
+        // Issue #1726: the title bar does not promote a community chat. This fork also drops
+        // Discord from the start screen, About and Help.
         for width in [760.0, 1100.0, 1440.0] {
             let mut w = Win::new(width);
             w.frame(vec![]);
             let out = w.frame(vec![]);
             assert!(!texts(&out).iter().any(|(t, _)| t.contains("Discord")), "no Discord in the bar at {width}");
         }
+    }
+
+    #[test]
+    fn github_button_sits_beside_the_theme_toggle_and_opens_this_fork() {
+        use std::sync::{Arc, Mutex};
+
+        use egui_kittest::{Harness, kittest::Queryable};
+
+        let opened: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+        let rec = opened.clone();
+        let app = PhotocraftApp::new(
+            Session::new(),
+            crate::Services {
+                open_url: Some(Box::new(move |url: &str| {
+                    rec.lock().unwrap().push(url.to_string());
+                    Ok(())
+                })),
+                ..Default::default()
+            },
+        );
+        let mut h = Harness::builder().with_size(vec2(1440.0, 600.0)).build_ui_state(
+            |ui, (app, ready): &mut (PhotocraftApp, bool)| {
+                // The builder's first frame runs before setup_context installs the theme fonts.
+                if *ready {
+                    crate::panels::title_bar(app, ui);
+                }
+            },
+            (app, false),
+        );
+        PhotocraftApp::setup_context(&h.ctx, crate::theme::ThemeKind::ALL[0]);
+        h.state_mut().1 = true;
+        h.run_steps(3);
+        let github = h.get_by_label("PhotoCraft on GitHub");
+        let theme = h.get_by_label("Appearance Mode: Dark");
+        assert!(github.rect().right() <= theme.rect().left(), "GitHub sits on the theme toggle's inner side: {:?} {:?}", github.rect(), theme.rect());
+        assert!((github.rect().center().y - theme.rect().center().y).abs() < 1.0, "same row");
+        github.click();
+        h.run_steps(1);
+        assert_eq!(opened.lock().unwrap().as_slice(), [crate::links::GITHUB]);
     }
 
     #[test]

@@ -2697,7 +2697,8 @@ fn start_screen(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     let recent: Vec<String> =
         if cfg!(target_arch = "wasm32") || !show_recent { Vec::new() } else { app.ui.recent_files.iter().take(HOME_RECENT).cloned().collect() };
     let recent_h = if recent.is_empty() { 0.0 } else { 34.0 + recent.len() as f32 * HOME_RECENT_ROW };
-    let card = Rect::from_center_size(area.center(), egui::vec2(460.0, 330.0 + recent_h));
+    // 280pt is the old 330pt card without the Discord button (28pt) and the gap under it.
+    let card = Rect::from_center_size(area.center(), egui::vec2(460.0, 280.0 + recent_h));
     let new_label = crate::shortcuts::command_label(app, "New document…", "file.new");
     let open_label = crate::shortcuts::command_label(app, "Open…", "file.open");
     ui.scope_builder(egui::UiBuilder::new().max_rect(card), |ui| {
@@ -2740,8 +2741,6 @@ fn start_screen(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                 home_recent(app, ui, &recent);
             }
             ui.add_space(26.0);
-            crate::links::discord_button(app, ui, 190.0);
-            ui.add_space(10.0);
             crate::links::link_row(app, ui);
         });
     });
@@ -6999,6 +6998,44 @@ mod tests {
         let hint = start_screen_drop_hint(&wayland);
         assert!(!hint.contains("Drop"), "{hint}");
         assert!(hint.ends_with(&format!("paste a copied image with {}.", crate::notices::paste_hint(&wayland))), "{hint}");
+    }
+
+    /// This fork's Home screen: GitHub opens the fork, and Discord / website / ArtCraft are gone.
+    #[test]
+    fn home_screen_links_only_this_forks_github() {
+        use std::sync::{Arc, Mutex};
+
+        use egui_kittest::kittest::Queryable;
+
+        let opened: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+        let rec = opened.clone();
+        let app = PhotocraftApp::new(
+            photocraft_engine::Session::new(),
+            crate::Services {
+                open_url: Some(Box::new(move |url: &str| {
+                    rec.lock().unwrap().push(url.to_string());
+                    Ok(())
+                })),
+                ..Default::default()
+            },
+        );
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(900.0, 760.0)).build_ui_state(
+            |ui, (app, ready): &mut (PhotocraftApp, bool)| {
+                if *ready {
+                    egui::CentralPanel::default().frame(egui::Frame::NONE).show(ui, |ui| document_area(app, ui));
+                }
+            },
+            (app, false),
+        );
+        PhotocraftApp::setup_context(&h.ctx, crate::theme::ThemeKind::default());
+        h.state_mut().1 = true;
+        h.run_steps(3);
+        for gone in ["Join us on Discord", "PhotoCraft website", "PhotoCraft Website", "ArtCraft", "ArtCraft Website"] {
+            assert!(h.query_by_label(gone).is_none(), "{gone} is still on the Home screen");
+        }
+        h.get_by_label("GitHub").click();
+        h.run_steps(1);
+        assert_eq!(opened.lock().unwrap().as_slice(), [crate::links::GITHUB]);
     }
 
     /// #4382: Interface › Show home recent files off hides the Home screen's list, not the recents.

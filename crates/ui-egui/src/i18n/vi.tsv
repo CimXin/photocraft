@@ -657,7 +657,6 @@
 	6-up	6 cửa sổ
 	About PhotoCraft	Giới thiệu PhotoCraft
 	Actions	Thao tác
-	ArtCraft Website	Trang web ArtCraft
 	Brush Settings	Thiết lập cọ
 	Brushes	Cọ
 	Cascade	Xếp tầng
@@ -677,7 +676,6 @@
 	Histogram	Histogram
 	History	Lịch sử
 	Info	Thông tin
-	Join the ArtCraft Discord…	Tham gia Discord ArtCraft…
 	Layer Comps	Tổ hợp lớp
 	Lock Workspace	Khóa không gian làm việc
 	Match All	Đồng bộ tất cả
@@ -698,7 +696,6 @@
 	Paths	Đường dẫn
 	Patterns	Họa tiết
 	PhotoCraft on GitHub	PhotoCraft trên GitHub
-	PhotoCraft Website	Trang web PhotoCraft
 	Photography	Nhiếp ảnh
 	Pixel Art	Pixel Art
 	Pro Medium Gray Theme	Chủ đề Pro xám vừa
@@ -1962,8 +1959,6 @@ colorRange	Invert	Đảo ngược
 
 # Visual QA finalization
 	New document…	Tài liệu mới…
-	Join us on Discord	Tham gia Discord
-	PhotoCraft website	Trang web PhotoCraft
 	Anchor:	Neo:
 	Canvas extension color:	Màu mở rộng canvas:
 layers	Fill	Độ tô
@@ -2325,7 +2320,6 @@ layers	Fill:	Độ tô:
 	Add	Thêm
 	Appearance	Giao diện
 shape	Appearance	Diện mạo
-	ArtCraft	ArtCraft
 	Bottom	Dưới
 	Capture	Ghi lại
 	Change	Thay
