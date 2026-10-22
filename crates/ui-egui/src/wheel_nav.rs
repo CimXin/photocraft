@@ -1,27 +1,36 @@
-//! Mouse wheel and trackpad navigation over the canvas (#293, #635), as in Photoshop:
+//! Mouse wheel and trackpad navigation over the canvas (#293, #635):
 //!
-//! - The wheel scrolls up and down; ⇧ or ⌘/Ctrl + wheel scrolls sideways.
-//! - ⌥/Alt + wheel zooms around the pointer, 10% per wheel notch, applied the frame it arrives.
-//!   ⇧/Shift + ⌥/Alt + wheel snaps to the next zoom ladder level instead.
-//! - Preferences › General › Zoom with Scroll Wheel swaps the two: the wheel zooms and
-//!   ⌥/Alt + wheel scrolls; ⇧/Shift + wheel snaps to the next zoom ladder level.
+//! - The wheel scrolls up and down. ⇧/Shift + wheel pans on that same vertical axis (a plain
+//!   wheel's up/down), including when the platform or egui has already folded the delta into x.
+//!   ⌘/Ctrl + wheel still scrolls sideways.
+//! - ⌥/Alt + wheel zooms around the pointer, ×[`NOTCH`] (10%) per physical wheel notch, applied
+//!   the frame it arrives. ⇧/Shift + ⌥/Alt + wheel snaps to the next zoom ladder level instead.
+//! - Preferences › General › Zoom with Scroll Wheel swaps wheel and ⌥/Alt: the wheel zooms and
+//!   ⌥/Alt + wheel scrolls. ⇧/Shift + wheel keeps snapping to the next zoom ladder level with
+//!   that preference on (it is not the vertical pan).
 //! - A trackpad pinch zooms around the pointer, unless Preferences › Enhanced Controls ›
 //!   Zoom with Trackpad Pinch is off (then a pinch does nothing, and Windows' Ctrl + wheel
 //!   fractions scroll sideways like the wheel, because the fold below is skipped).
 //!
-//! [`configure`] makes egui fold ⌘/Ctrl + wheel into a sideways scroll as it does ⇧ + wheel, so
-//! only a real pinch (egui's `Event::Zoom`, or a touch screen) reaches `zoom_delta`. macOS and
-//! browsers deliver a pinch as its own event, but Windows hands a precision touchpad pinch to apps
-//! as Ctrl + wheel in fractions of a notch (also on some Linux Wayland systems):
-//! [`fold_legacy_pinch`] turns those back into a pinch
-//! before egui sees them, so Ctrl + a notched mouse wheel scrolls sideways and the pinch still
-//! zooms.
+//! [`configure`] makes egui fold ⌘/Ctrl + wheel into a sideways scroll. Shift is not part of
+//! that fold. Only a real pinch (egui's `Event::Zoom`, or a touch screen) reaches `zoom_delta`.
+//! macOS and browsers deliver a pinch as its own event, but Windows hands a precision touchpad
+//! pinch to apps as Ctrl + wheel in fractions of a notch (also on some Linux Wayland systems):
+//! [`fold_legacy_pinch`] turns those back into a pinch before egui sees them, so Ctrl + a notched
+//! mouse wheel scrolls sideways and the pinch still zooms.
 //!
-//! The target behaviour is exact ×1.1 steps, one per notch, with no easing in between
-//! (measured frame by frame on a screen recording). egui smooths a wheel notch over several
-//! frames, so zooming reads the wheel events themselves and ignores that smoothed tail; panning
-//! keeps the smoothed delta. The Alt state is taken from the wheel events and kept until the next
-//! wheel event: releasing Alt while the tail is still settling must not turn it into a pan.
+//! One physical notch is exactly ×1.1, with no easing in between. egui smooths a wheel notch
+//! over several frames, so zooming reads the wheel events themselves and ignores that smoothed
+//! tail; panning keeps the smoothed delta. The Alt state is taken from the wheel events and kept
+//! until the next wheel event: releasing Alt while the tail is still settling must not turn it
+//! into a pan.
+//!
+//! Line-unit events are already notches (winit reports one click as ±1). Point-unit events are
+//! not: egui's `line_scroll_speed` is 40 on native and 8 on wasm, while a click arrives as ~14
+//! points (a precise mouse) or ~100 CSS pixels (a browser `DOM_DELTA_PIXEL` wheel). Dividing
+//! those by `line_scroll_speed` stacked many ×1.1 steps onto one Alt+wheel click — about
+//! ×1.1^(100/8) on the web build. A discrete point event counts as clicks instead, and smooth
+//! sub-click samples accumulate at 40 points per step on web and desktop alike.
 
 use egui::{Context, Event, Id, Modifiers, MouseWheelUnit, RawInput, Vec2};
 
@@ -31,6 +40,86 @@ pub const NOTCH: f32 = 1.1;
 /// A Ctrl + wheel event this soon (seconds) after a pinch step still belongs to the pinch, even
 /// when it happens to be a whole notch.
 const PINCH_GAP: f64 = 0.25;
+
+/// Point-unit motion smaller than this is a smooth sample (a trackpad). At least this big, the
+/// event is one physical mouse click: precise mice report about 14 points, browsers about 100
+/// CSS pixels. egui treats a point delta shorter than 8 as smooth scrolling and a longer one as
+/// a discrete wheel step.
+const DISCRETE_POINT_NOTCH: f32 = 8.0;
+
+/// CSS pixels in one browser mouse notch (`DOM_DELTA_PIXEL`, Chrome's 100 per `WHEEL_DELTA`).
+/// A discrete point event at least this long counts as that many clicks; a shorter discrete
+/// event is still one click (the 14-point precise mouse).
+const PIXEL_CLICK: f32 = 100.0;
+
+/// Smooth point samples that add up to one zoom step. This is not egui's `line_scroll_speed`
+/// (40 native, 8 on wasm), which only scales line-unit scrolling.
+const SMOOTH_POINTS_PER_NOTCH: f32 = 40.0;
+
+/// How many ×[`NOTCH`] steps a point-unit axis delta is.
+fn point_notches(d: f32) -> f32 {
+    if !d.is_finite() || d == 0.0 {
+        return 0.0;
+    }
+    let abs = d.abs();
+    let steps = if abs >= DISCRETE_POINT_NOTCH {
+        let n = (abs / PIXEL_CLICK).round();
+        if n.is_finite() { n.clamp(1.0, 10.0) } else { 10.0 }
+    } else {
+        let n = abs / SMOOTH_POINTS_PER_NOTCH;
+        if n.is_finite() { n } else { 0.0 }
+    };
+    d.signum() * steps
+}
+
+/// Points per zoom step for `line_scroll_speed`, or [`SMOOTH_POINTS_PER_NOTCH`] when that
+/// setting is missing.
+fn notch_points(line_scroll_speed: f32) -> f32 {
+    if line_scroll_speed.is_finite() && line_scroll_speed > 0.0 { line_scroll_speed } else { SMOOTH_POINTS_PER_NOTCH }
+}
+
+/// Zoom steps along one axis. Line units are already notches. Point units go through
+/// [`point_notches`]. Page units keep the old scale (one page is a screen of points).
+fn axis_notches(unit: MouseWheelUnit, d: f32, line_points: f32, page_points: f32) -> f32 {
+    if !d.is_finite() || d == 0.0 {
+        return 0.0;
+    }
+    match unit {
+        MouseWheelUnit::Line => d,
+        MouseWheelUnit::Page => {
+            if page_points.is_finite() && line_points > 0.0 {
+                d * page_points / line_points
+            } else {
+                0.0
+            }
+        }
+        MouseWheelUnit::Point => point_notches(d),
+    }
+}
+
+/// Pan delta in points, and the same event expressed as zoom-step points (`notches * line_points`,
+/// so [`classify`] can keep dividing by `line_scroll_speed`).
+fn event_motion(unit: MouseWheelUnit, delta: Vec2, line_scroll_speed: f32, page_points: f32) -> (Vec2, Vec2) {
+    let line_points = notch_points(line_scroll_speed);
+    let pan_scale = match unit {
+        MouseWheelUnit::Point => 1.0,
+        MouseWheelUnit::Line => line_points,
+        MouseWheelUnit::Page => page_points,
+    };
+    let pan = if pan_scale.is_finite() { delta * pan_scale } else { Vec2::ZERO };
+    let zoom =
+        Vec2::new(axis_notches(unit, delta.x, line_points, page_points) * line_points, axis_notches(unit, delta.y, line_points, page_points) * line_points);
+    (pan, if zoom.x.is_finite() && zoom.y.is_finite() { zoom } else { Vec2::ZERO })
+}
+
+/// Shift+wheel travel on the vertical axis. egui (and some platforms) fold that gesture into x;
+/// the distance still pans up and down, like an unmodified wheel.
+fn vertical_pan(scroll: Vec2) -> Vec2 {
+    if !(scroll.x.is_finite() && scroll.y.is_finite()) {
+        return Vec2::ZERO;
+    }
+    Vec2::new(0.0, scroll.x + scroll.y)
+}
 
 /// What the wheel does to the view this frame.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -70,9 +159,9 @@ pub fn classify(i: Input) -> Option<Wheel> {
     if i.pinch_zooms && i.zoom_delta.is_finite() && i.zoom_delta > 0.0 && i.zoom_delta != 1.0 {
         return Some(Wheel::Zoom(i.zoom_delta));
     }
-    // One notch (`notch` points) is one ×1.1 step.
+    // One notch (`notch` points, after `event_motion` normalizes units) is one ×1.1 step.
     let step = |dy: f32| {
-        let notch = if i.notch.is_finite() && i.notch > 0.0 { i.notch } else { 40.0 };
+        let notch = notch_points(i.notch);
         let f = NOTCH.powf(dy / notch);
         (f.is_finite() && f > 0.0 && f != 1.0).then_some(Wheel::Zoom(f))
     };
@@ -80,7 +169,7 @@ pub fn classify(i: Input) -> Option<Wheel> {
         if dy == 0.0 {
             return None;
         }
-        let notch = if i.notch.is_finite() && i.notch > 0.0 { i.notch } else { 40.0 };
+        let notch = notch_points(i.notch);
         let n = dy / notch;
         if !n.is_finite() {
             return None;
@@ -98,17 +187,23 @@ pub fn classify(i: Input) -> Option<Wheel> {
         (false, true) if i.shift => snap(i.raw.y + i.raw.x),
         // ⌘/Ctrl folds the wheel into x: those still scroll sideways.
         (false, true) if i.raw.y != 0.0 || i.scroll.y != 0.0 => step(i.raw.y),
+        // ⇧ alone, preference off: vertical pan. Undo a sideways fold (egui or the OS).
+        (false, false) if i.shift => {
+            let scroll = vertical_pan(i.scroll);
+            (scroll != Vec2::ZERO).then_some(Wheel::Pan(scroll))
+        }
         _ if !(i.scroll.x.is_finite() && i.scroll.y.is_finite()) || i.scroll == Vec2::ZERO => None,
         _ => Some(Wheel::Pan(i.scroll)),
     }
 }
 
-/// Set egui's wheel modifiers (once, at setup): ⌘/Ctrl + wheel scrolls sideways like ⇧ + wheel
-/// instead of zooming, everywhere in the app.
+/// Set egui's wheel modifiers (once, at setup): ⌘/Ctrl + wheel scrolls sideways. Shift does not —
+/// Shift+wheel pans vertically, everywhere this option applies.
 pub fn configure(ctx: &Context) {
     ctx.options_mut(|o| {
         o.input_options.zoom_modifier = Modifiers::NONE;
-        o.input_options.horizontal_scroll_modifier = Modifiers::SHIFT | Modifiers::COMMAND;
+        // `Modifiers::COMMAND` matches Ctrl and ⌘ (`matches_any`). Shift is intentionally absent.
+        o.input_options.horizontal_scroll_modifier = Modifiers::COMMAND;
     });
 }
 
@@ -248,8 +343,9 @@ pub fn read_with(ctx: &Context, zoom_with_wheel: bool, pinch_zooms: bool, owner:
 
     // --- Input classification (hovered viewport only) ---
     // The wheel events that belong to the gesture in progress: Shift+Alt (snap zoom), Alt-only
-    // (continuous zoom), Shift-only (snap zoom with zoom_with_wheel), or plain (scroll/zoom).
-    let raw = wheel
+    // (continuous zoom), Shift-only (snap zoom with zoom_with_wheel, otherwise a vertical pan),
+    // or plain (scroll/zoom).
+    let (pan_raw, zoom_raw) = wheel
         .iter()
         .filter(|(_, _, m)| {
             if alt && shift {
@@ -262,19 +358,15 @@ pub fn read_with(ctx: &Context, zoom_with_wheel: bool, pinch_zooms: bool, owner:
                 !m.alt && !m.shift && !m.command && !m.ctrl
             }
         })
-        .fold(Vec2::ZERO, |sum, (unit, delta, _)| {
-            sum + *delta
-                * match unit {
-                    MouseWheelUnit::Point => 1.0,
-                    MouseWheelUnit::Line => notch,
-                    MouseWheelUnit::Page => page,
-                }
+        .fold((Vec2::ZERO, Vec2::ZERO), |(pan, zoom), (unit, delta, _)| {
+            let (p, z) = event_motion(*unit, *delta, notch, page);
+            (pan + p, zoom + z)
         });
     let snap_mode = shift && ((alt && !zoom_with_wheel) || (!alt && zoom_with_wheel));
     let has_pinch = pinch_zooms && zoom_delta.is_finite() && zoom_delta > 0.0 && zoom_delta != 1.0;
 
     if snap_mode && !has_pinch {
-        let dy = raw.y + raw.x;
+        let dy = zoom_raw.y + zoom_raw.x;
         if dy == 0.0 {
             return None;
         }
@@ -305,7 +397,7 @@ pub fn read_with(ctx: &Context, zoom_with_wheel: bool, pinch_zooms: bool, owner:
         } else {
             0.0
         };
-        let notch_val = if notch.is_finite() && notch > 0.0 { notch } else { 40.0 };
+        let notch_val = notch_points(notch);
         let total = prev + dy;
         let n = if total.is_finite() { (total / notch_val).trunc() } else { 0.0 };
         let remainder = total - n * notch_val;
@@ -323,9 +415,11 @@ pub fn read_with(ctx: &Context, zoom_with_wheel: bool, pinch_zooms: bool, owner:
                 d.remove::<f64>(snap_time_id(owner));
             });
         }
-        // Unsmoothed, a plain scroll pans by this frame's own wheel events (none: no tail).
-        let scroll = if smooth || alt || shift { scroll } else { raw };
-        classify(Input { scroll, raw, zoom_delta, alt, shift, zoom_with_wheel, pinch_zooms, notch })
+        // Unsmoothed, a plain scroll (and Shift+wheel, which pans on the same axis) moves by this
+        // frame's own wheel events. Alt still feeds the smoothed delta in, but zoom reads `zoom_raw`
+        // and ignores that tail.
+        let scroll = if smooth || alt { scroll } else { pan_raw };
+        classify(Input { scroll, raw: zoom_raw, zoom_delta, alt, shift, zoom_with_wheel, pinch_zooms, notch })
     }
 }
 
@@ -531,7 +625,12 @@ mod tests {
     #[test]
     fn shift_only_without_zoom_with_wheel_does_not_snap() {
         let i = Input { shift: true, zoom_with_wheel: false, ..input(Vec2::new(0.0, 40.0), false) };
-        assert_eq!(classify(i), Some(Wheel::Pan(Vec2::new(0.0, 40.0))), "⇧ alone without the preference: no zoom");
+        assert_eq!(classify(i), Some(Wheel::Pan(Vec2::new(0.0, 40.0))), "⇧ alone without the preference: vertical pan");
+        // egui's old Shift fold, and some platforms, deliver the notch in x.
+        let folded = Input { shift: true, zoom_with_wheel: false, ..input(Vec2::new(40.0, 0.0), false) };
+        assert_eq!(classify(folded), Some(Wheel::Pan(Vec2::new(0.0, 40.0))), "a sideways ⇧ fold still pans vertically");
+        let down = Input { shift: true, zoom_with_wheel: false, ..input(Vec2::new(-40.0, 0.0), false) };
+        assert_eq!(classify(down), Some(Wheel::Pan(Vec2::new(0.0, -40.0))));
     }
 
     #[test]
@@ -564,7 +663,12 @@ mod tests {
         let one = |m: Modifiers| gesture(vec![vec![wheel(notch, m)]], false, false);
         let (pan, zoom, _) = one(Modifiers::NONE);
         assert!(near(pan, Vec2::new(0.0, 40.0)) && zoom == 1.0, "wheel scrolls vertically: {pan:?} {zoom}");
-        for m in [Modifiers::SHIFT, CTRL, CMD, Modifiers::CTRL] {
+        let (pan, zoom, _) = one(Modifiers::SHIFT);
+        assert!(near(pan, Vec2::new(0.0, 40.0)) && zoom == 1.0, "⇧ + wheel pans vertically: {pan:?} {zoom}");
+        // The platform already reported the Shift+wheel notch on x. It still pans vertically.
+        let (pan, zoom, _) = gesture(vec![vec![wheel(Vec2::new(1.0, 0.0), Modifiers::SHIFT)]], false, false);
+        assert!(near(pan, Vec2::new(0.0, 40.0)) && zoom == 1.0, "folded ⇧ + wheel pans vertically: {pan:?} {zoom}");
+        for m in [CTRL, CMD, Modifiers::CTRL, Modifiers::SHIFT | CTRL] {
             let (pan, zoom, _) = one(m);
             assert!(near(pan, Vec2::new(40.0, 0.0)) && zoom == 1.0, "{m:?} + wheel scrolls sideways: {pan:?} {zoom}");
         }
@@ -718,86 +822,44 @@ mod tests {
 
     #[test]
     fn fractional_point_events_accumulate_across_frames() {
-        let quarter = Vec2::new(0.0, 10.0);
+        // One event of 40 points is a discrete click (above [`DISCRETE_POINT_NOTCH`]), one ladder step.
         let batched = snap_gesture(vec![vec![wheel_point(Vec2::new(0.0, 40.0), Modifiers::SHIFT)]], true, Id::new("accum-batched"));
-        let split = snap_gesture(
-            vec![
-                vec![wheel_point(quarter, Modifiers::SHIFT)],
-                vec![wheel_point(quarter, Modifiers::SHIFT)],
-                vec![wheel_point(quarter, Modifiers::SHIFT)],
-                vec![wheel_point(quarter, Modifiers::SHIFT)],
-            ],
-            true,
-            Id::new("accum-split"),
-        );
+        // Samples under that threshold accumulate at [`SMOOTH_POINTS_PER_NOTCH`] points per step.
+        let fifth = Vec2::new(0.0, 5.0);
+        let split = snap_gesture(vec![vec![wheel_point(fifth, Modifiers::SHIFT)]; 8], true, Id::new("accum-split"));
         assert_eq!(batched, 1, "40 points batched → 1 step");
-        assert_eq!(split, 1, "4 × 10 points split → 1 step");
+        assert_eq!(split, 1, "8 × 5 points split → 1 step");
     }
 
     #[test]
     fn fractional_accumulation_negative_and_horizontal() {
-        let neg_quarter = Vec2::new(0.0, -10.0);
-        let neg_split = snap_gesture(
-            vec![
-                vec![wheel_point(neg_quarter, Modifiers::SHIFT)],
-                vec![wheel_point(neg_quarter, Modifiers::SHIFT)],
-                vec![wheel_point(neg_quarter, Modifiers::SHIFT)],
-                vec![wheel_point(neg_quarter, Modifiers::SHIFT)],
-            ],
-            true,
-            Id::new("accum-neg"),
-        );
-        assert_eq!(neg_split, -1, "4 × −10 points → −1 step");
-        let h_quarter = Vec2::new(10.0, 0.0);
-        let h_split = snap_gesture(
-            vec![
-                vec![wheel_point(h_quarter, Modifiers::SHIFT)],
-                vec![wheel_point(h_quarter, Modifiers::SHIFT)],
-                vec![wheel_point(h_quarter, Modifiers::SHIFT)],
-                vec![wheel_point(h_quarter, Modifiers::SHIFT)],
-            ],
-            true,
-            Id::new("accum-horiz"),
-        );
-        assert_eq!(h_split, 1, "horizontal 4 × 10 → 1 step");
+        let neg_fifth = Vec2::new(0.0, -5.0);
+        let neg_split = snap_gesture(vec![vec![wheel_point(neg_fifth, Modifiers::SHIFT)]; 8], true, Id::new("accum-neg"));
+        assert_eq!(neg_split, -1, "8 × −5 points → −1 step");
+        let h_fifth = Vec2::new(5.0, 0.0);
+        let h_split = snap_gesture(vec![vec![wheel_point(h_fifth, Modifiers::SHIFT)]; 8], true, Id::new("accum-horiz"));
+        assert_eq!(h_split, 1, "horizontal 8 × 5 → 1 step");
     }
 
     #[test]
     fn accumulation_handles_empty_frames_and_direction_reversal() {
-        let snaps = snap_gesture(
-            vec![
-                vec![wheel_point(Vec2::new(0.0, 10.0), Modifiers::SHIFT)],
-                vec![], // empty frame
-                vec![wheel_point(Vec2::new(0.0, 10.0), Modifiers::SHIFT)],
-                vec![wheel_point(Vec2::new(0.0, 10.0), Modifiers::SHIFT)],
-                vec![wheel_point(Vec2::new(0.0, 10.0), Modifiers::SHIFT)],
-            ],
-            true,
-            Id::new("accum-empty"),
-        );
+        let mut frames = vec![vec![wheel_point(Vec2::new(0.0, 5.0), Modifiers::SHIFT)]; 8];
+        frames.insert(1, vec![]);
+        let snaps = snap_gesture(frames, true, Id::new("accum-empty"));
         assert_eq!(snaps, 1, "empty frame preserves residual");
         let reversal = snap_gesture(
-            vec![vec![wheel_point(Vec2::new(0.0, 30.0), Modifiers::SHIFT)], vec![wheel_point(Vec2::new(0.0, -15.0), Modifiers::SHIFT)]],
+            vec![vec![wheel_point(Vec2::new(0.0, 7.0), Modifiers::SHIFT)], vec![wheel_point(Vec2::new(0.0, -3.0), Modifiers::SHIFT)]],
             true,
             Id::new("accum-reversal"),
         );
-        assert_eq!(reversal, 0, "30 − 15 = 15 points, below 1 notch → 0 steps");
+        assert_eq!(reversal, 0, "7 − 3 = 4 points, below 1 smooth notch → 0 steps");
     }
 
     #[test]
     fn accumulation_shift_alt_without_preference() {
         let shift_alt = Modifiers { shift: true, alt: true, ..Modifiers::NONE };
-        let split = snap_gesture(
-            vec![
-                vec![wheel_point(Vec2::new(0.0, 10.0), shift_alt)],
-                vec![wheel_point(Vec2::new(0.0, 10.0), shift_alt)],
-                vec![wheel_point(Vec2::new(0.0, 10.0), shift_alt)],
-                vec![wheel_point(Vec2::new(0.0, 10.0), shift_alt)],
-            ],
-            false,
-            Id::new("accum-shift-alt"),
-        );
-        assert_eq!(split, 1, "Shift+Alt 4 × 10 → 1 step without preference");
+        let split = snap_gesture(vec![vec![wheel_point(Vec2::new(0.0, 5.0), shift_alt)]; 8], false, Id::new("accum-shift-alt"));
+        assert_eq!(split, 1, "Shift+Alt 8 × 5 smooth points → 1 step without preference");
     }
 
     #[test]
@@ -808,9 +870,9 @@ mod tests {
         configure(&ctx);
         let mut snaps_a = 0i32;
         let mut snaps_b = 0i32;
-        // Frame 0: 30 points over A (hovered), B not hovered.
+        // Frame 0: 35 smooth points over A (7 × 5, under one notch and under a discrete click), B not hovered.
         let raw =
-            RawInput { time: Some(0.0), predicted_dt: 1.0 / 60.0, events: vec![wheel_point(Vec2::new(0.0, 30.0), Modifiers::SHIFT)], ..Default::default() };
+            RawInput { time: Some(0.0), predicted_dt: 1.0 / 60.0, events: vec![wheel_point(Vec2::new(0.0, 5.0), Modifiers::SHIFT); 7], ..Default::default() };
         let mut out = ctx.run_ui(raw, |ui| {
             if let Some(Wheel::SnapZoom(s)) = read(ui.ctx(), true, true, owner_a, true) {
                 snaps_a += s;
@@ -820,13 +882,13 @@ mod tests {
             }
         });
         out.textures_delta.clear();
-        assert_eq!(snaps_a, 0, "A: 30 points, below 1 notch");
+        assert_eq!(snaps_a, 0, "A: 35 points, below 1 notch");
         assert_eq!(snaps_b, 0, "B: not hovered, nothing");
-        // Frame 1: 10 points, pointer moved to B (B hovered, A not).
+        // Frame 1: 5 points, pointer moved to B (B hovered, A not). A's 35 must not come with it.
         let raw = RawInput {
             time: Some(1.0 / 60.0),
             predicted_dt: 1.0 / 60.0,
-            events: vec![wheel_point(Vec2::new(0.0, 10.0), Modifiers::SHIFT)],
+            events: vec![wheel_point(Vec2::new(0.0, 5.0), Modifiers::SHIFT)],
             ..Default::default()
         };
         let mut out = ctx.run_ui(raw, |ui| {
@@ -838,13 +900,13 @@ mod tests {
             }
         });
         out.textures_delta.clear();
-        assert_eq!(snaps_b, 0, "B: only 10 points of its own, no snap");
-        // Frame 2–4: 30 more points over B.
-        for n in 2..5 {
+        assert_eq!(snaps_b, 0, "B: only 5 points of its own, no snap");
+        // Frames 2–8: 35 more points over B (5 + 35 = 40 → one step).
+        for n in 2..9 {
             let raw = RawInput {
                 time: Some(f64::from(n) / 60.0),
                 predicted_dt: 1.0 / 60.0,
-                events: vec![wheel_point(Vec2::new(0.0, 10.0), Modifiers::SHIFT)],
+                events: vec![wheel_point(Vec2::new(0.0, 5.0), Modifiers::SHIFT)],
                 ..Default::default()
             };
             let mut out = ctx.run_ui(raw, |ui| {
@@ -855,12 +917,12 @@ mod tests {
             });
             out.textures_delta.clear();
         }
-        assert_eq!(snaps_b, 1, "B: 10+10+10+10 = 40 → 1 step");
-        // Frame 5: switch back to A — A's residual was cleared on the viewport switch.
+        assert_eq!(snaps_b, 1, "B: 5 + 7×5 = 40 → 1 step");
+        // Switch back to A — A's residual was cleared on the viewport switch.
         let raw = RawInput {
-            time: Some(5.0 / 60.0),
+            time: Some(9.0 / 60.0),
             predicted_dt: 1.0 / 60.0,
-            events: vec![wheel_point(Vec2::new(0.0, 30.0), Modifiers::SHIFT)],
+            events: vec![wheel_point(Vec2::new(0.0, 5.0), Modifiers::SHIFT)],
             ..Default::default()
         };
         let mut out = ctx.run_ui(raw, |ui| {
@@ -870,7 +932,7 @@ mod tests {
             let _ = read(ui.ctx(), true, true, owner_b, false);
         });
         out.textures_delta.clear();
-        assert_eq!(snaps_a, 0, "A: fresh start after switch, 30 points, no snap yet");
+        assert_eq!(snaps_a, 0, "A: fresh start after switch, 5 points, no snap yet");
     }
 
     #[test]
@@ -879,8 +941,9 @@ mod tests {
         let ctx = Context::default();
         configure(&ctx);
         let mut total_snaps = 0i32;
+        // Four smooth samples of 5: 20 points. A second read must not turn that into 40.
         let raw =
-            RawInput { time: Some(0.0), predicted_dt: 1.0 / 60.0, events: vec![wheel_point(Vec2::new(0.0, 20.0), Modifiers::SHIFT)], ..Default::default() };
+            RawInput { time: Some(0.0), predicted_dt: 1.0 / 60.0, events: vec![wheel_point(Vec2::new(0.0, 5.0), Modifiers::SHIFT); 4], ..Default::default() };
         let mut out = ctx.run_ui(raw, |ui| {
             if let Some(Wheel::SnapZoom(s)) = read(ui.ctx(), true, true, owner, true) {
                 total_snaps += s;
@@ -891,11 +954,11 @@ mod tests {
         });
         out.textures_delta.clear();
         assert_eq!(total_snaps, 0, "20 points read twice must not become 40");
-        // Now add another 20 in the next frame — should snap since accumulated 20+20=40.
+        // Another 20 in the next frame — 20 + 20 = 40 → one step.
         let raw = RawInput {
             time: Some(1.0 / 60.0),
             predicted_dt: 1.0 / 60.0,
-            events: vec![wheel_point(Vec2::new(0.0, 20.0), Modifiers::SHIFT)],
+            events: vec![wheel_point(Vec2::new(0.0, 5.0), Modifiers::SHIFT); 4],
             ..Default::default()
         };
         let mut out = ctx.run_ui(raw, |ui| {
@@ -913,6 +976,53 @@ mod tests {
             let snaps = snap_gesture(vec![vec![wheel_point(Vec2::new(0.0, dy), Modifiers::SHIFT)]], true, Id::new("accum-hostile"));
             assert!(snaps.abs() <= 10, "hostile {dy} clamped: {snaps}");
         }
+    }
+
+    /// A browser mouse notch is a Point event of ~100 CSS px. egui's wasm `line_scroll_speed` is 8,
+    /// so `100/8` used to be 12.5 ×1.1 steps (~×3.3) for one Alt+wheel click. A precise mouse
+    /// click is ~14 points, which `14/40` used to turn into a fraction of a step. Both are one notch.
+    #[test]
+    fn alt_point_click_zooms_ten_percent_not_line_scroll_units() {
+        assert!((point_notches(100.0) - 1.0).abs() < 1e-6, "browser notch");
+        assert!((point_notches(-120.0) + 1.0).abs() < 1e-6, "120px is still one click");
+        assert!((point_notches(14.0) - 1.0).abs() < 1e-6, "precise mouse");
+        assert!((point_notches(200.0) - 2.0).abs() < 1e-6, "two coalesced pixel clicks");
+        assert!((point_notches(4.0) - 4.0 / SMOOTH_POINTS_PER_NOTCH).abs() < 1e-6, "smooth sample is not a click");
+        assert_eq!(point_notches(f32::NAN), 0.0);
+        assert!((point_notches(1.0e30) - 10.0).abs() < 1e-6);
+
+        let zoom_of = |speed: f32, zoom_with_wheel: bool, events: Vec<Event>| -> f32 {
+            let ctx = Context::default();
+            configure(&ctx);
+            ctx.options_mut(|o| o.input_options.line_scroll_speed = speed);
+            let mut zoom = 1.0f32;
+            let mut frames = vec![events].into_iter();
+            for n in 0..8 {
+                let raw =
+                    RawInput { time: Some(f64::from(n) / 60.0), predicted_dt: 1.0 / 60.0, events: frames.next().unwrap_or_default(), ..Default::default() };
+                let mut out = ctx.run_ui(raw, |ui| {
+                    if let Some(Wheel::Zoom(f)) = read(ui.ctx(), zoom_with_wheel, true, Id::new("zoom-units"), true) {
+                        zoom *= f;
+                    }
+                });
+                out.textures_delta.clear();
+            }
+            zoom
+        };
+        let alt = Modifiers::ALT;
+        let web = zoom_of(8.0, false, vec![wheel_point(Vec2::new(0.0, 100.0), alt)]);
+        assert!((web - NOTCH).abs() < 1e-4, "wasm speed 8, 100px Alt+wheel is ×1.1 not ×1.1^(100/8): {web}");
+        let precise = zoom_of(40.0, false, vec![wheel_point(Vec2::new(0.0, 14.0), alt)]);
+        assert!((precise - NOTCH).abs() < 1e-4, "native speed 40, 14pt Alt+wheel is ×1.1 not ×1.1^(14/40): {precise}");
+        let smooth = zoom_of(8.0, false, vec![wheel_point(Vec2::new(0.0, 4.0), alt)]);
+        let expect = NOTCH.powf(4.0 / SMOOTH_POINTS_PER_NOTCH);
+        assert!((smooth - expect).abs() < 1e-4, "smooth 4pt uses 40pt/notch, not wasm's 8: {smooth} vs {expect}");
+        let two = zoom_of(8.0, false, vec![wheel_point(Vec2::new(0.0, 100.0), alt), wheel_point(Vec2::new(0.0, 100.0), alt)]);
+        assert!((two - NOTCH * NOTCH).abs() < 1e-3, "two pixel clicks in one frame are two steps: {two}");
+        let line = zoom_of(8.0, false, vec![wheel(Vec2::new(0.0, 1.0), alt)]);
+        assert!((line - NOTCH).abs() < 1e-4, "a line-unit click stays one step at wasm speed: {line}");
+        let pref = zoom_of(8.0, true, vec![wheel_point(Vec2::new(0.0, 100.0), Modifiers::NONE)]);
+        assert!((pref - NOTCH).abs() < 1e-4, "Zoom with Scroll Wheel: a pixel click is still one step: {pref}");
     }
 
     #[test]
