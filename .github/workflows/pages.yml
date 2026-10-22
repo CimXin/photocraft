@@ -14,18 +14,108 @@
 # folder. Project Pages already serves the artifact at /<repo>/.
 #
 # Memory: the wasm-release profile is fat LTO. ci.yml's web job builds that on
-# ubuntu-latest. A smaller runner (or a Docker VM) can still die with SIGKILL
-# during the link or wasm-opt, so this job uses the Dockerfile's small-builder
-# overrides: thin LTO and CARGO_BUILD_JOBS=1. package.sh still enforces the
-# 24 MiB file cap. To match the release zip, set CARGO_PROFILE_WASM_RELEASE_LTO=fat
-# and raise CARGO_BUILD_JOBS (the Dockerfile uses 4 when the machine has the RAM).
-# A cold build is serial and can take one to two hours; cargo and trunk caches
-# shorten the next push. The job limit below is the hosted-runner maximum.
+# ubuntu-latest. A smaller runner or a Docker VM can still die with SIGKILL
+# during the link or wasm-opt, so this job keeps thin LTO (the Dockerfile's
+# small-builder default). It does not keep CARGO_BUILD_JOBS=1. A standard
+# GitHub-hosted ubuntu-latest runner is 4 vCPU and 16 GiB. Two thin-LTO rustc
+# processes leave headroom for the multi-GiB codegen of engine, ui-egui and gpu
+# and for wasm-opt -Oz --converge, which runs after cargo. JOBS=4 is the
+# Dockerfile's "larger builder" knob and the ceiling on the 12 GiB FreeBSD VM;
+# four of those crates codegening together is enough to SIGKILL a 16 GiB
+# runner, so this job stays at 2. Fat LTO stays off: a deploy is not bet on
+# peak link memory. package.sh still enforces the 24 MiB file cap.
+#
+# Time: with the cargo and trunk caches, successful main deploys in October
+# 2026 took about 10–21 minutes, not the old one-to-two-hour serial cold builds.
+# A warm run (run 39750365316) spent ~2m43s in the single photocraft-web crate
+# and ~3m51s in wasm-opt; neither scales with CARGO_BUILD_JOBS. JOBS=2 overlaps
+# the independent crates around that tail (engine and gpu are siblings) and
+# cuts a cache miss by much more, because the old JOBS=1 serialized the whole
+# graph. The job limit below is the hosted-runner maximum (360 minutes).
+#
+# Paths: a main push is skipped only when every changed file matches
+# paths-ignore. Any other path, including one this list does not know yet,
+# still builds and deploys. docs/brand/LICENSE-brand.txt is the only file
+# under docs/ that pages-stage.sh copies onto the site; it is not markdown
+# or an image, so a change to it still builds. workflow_dispatch is not
+# path-filtered and always does a full build and deploy.
+#
+# Concurrency is per job, not one group for the whole workflow. pages-build
+# cancels an in-progress build and any build still queued when a newer push
+# arrives, so the latest commit is the one that compiles. pages-deploy does
+# not cancel an upload that has already started: GitHub Pages swaps the live
+# site only when a deployment finishes, and killing deploy-pages mid-flight
+# can leave that deployment stuck. A cancelled build never deploys. A deploy
+# already uploading finishes; a newer deploy waits, and GitHub drops an older
+# deploy that is still only queued. The next push republishes the latest tree.
 name: GitHub Pages
 
 on:
   push:
     branches: [main]
+    # Skip only when every file in the push matches. A mix still builds.
+    # workflow_dispatch below is not filtered.
+    paths-ignore:
+      # pages-stage.sh copies docs/brand/LICENSE-brand.txt and nothing else
+      # under docs/. That file is .txt, so these patterns leave it live.
+      # HOSTING.md on the site is packaging/web/README.md, not a docs file.
+      - "docs/**/*.md"
+      - "docs/**/*.png"
+      - "docs/**/*.jpg"
+      - "docs/**/*.jpeg"
+      - "docs/**/*.svg"
+      - "docs/**/*.json"
+      - "book/**"
+      # Root prose the site does not ship. pages-stage.sh copies ATTRIBUTION.md,
+      # NOTICE and the LICENSE* files; those names are not listed here.
+      # README.md is include_str!'d only from a #[test], then deleted from the
+      # staged site.
+      - "README.md"
+      - "ROADMAP.md"
+      - "AGENTS.md"
+      - "SECURITY.md"
+      - "Dockerfile"
+      - ".dockerignore"
+      - ".gitignore"
+      - ".git-blame-ignore-revs"
+      - "rustfmt.toml"
+      - "clippy.toml"
+      # Desktop and CLI shells are not linked into the wasm. The slash after
+      # photocraft is literal, so this does not match photocraft-web or
+      # photocraft-web-boot. A Cargo.lock change still rebuilds.
+      - "apps/photocraft/**"
+      - "apps/photocraft-cli/**"
+      - "xtask/**"
+      - "examples/**"
+      - "perf/**"
+      - "scorecard/**"
+      - "scripts/**"
+      # OS packaging and the icon generator. The generator's outputs live in
+      # assets/, which is not ignored. package.sh sources packaging/env.sh
+      # and everything under packaging/web/; neither is listed here.
+      - "packaging/freebsd/**"
+      - "packaging/linux/**"
+      - "packaging/macos/**"
+      - "packaging/windows/**"
+      - "packaging/icons.sh"
+      - "packaging/.shellcheckrc"
+      # Integration tests, benches, examples and READMEs are not in the release
+      # wasm. One path segment (crates/<crate>/…): a src/ module named tests
+      # still builds. src/, build.rs, Cargo.toml, i18n catalogs and ICC
+      # profiles are not listed here.
+      - "crates/*/tests/**"
+      - "crates/*/benches/**"
+      - "crates/*/examples/**"
+      - "crates/*/README.md"
+      # Workflows other than this file. Editing pages.yml still deploys.
+      - ".github/workflows/ci.yml"
+      - ".github/workflows/docs.yml"
+      - ".github/workflows/freebsd.yml"
+      - ".github/workflows/packaging-lint.yml"
+      - ".github/workflows/perf-nightly.yml"
+      - ".github/workflows/release.yml"
+      - ".github/workflows/windows-arm64.yml"
+      - ".github/actionlint.yaml"
   workflow_dispatch:
 
 permissions:
@@ -33,21 +123,21 @@ permissions:
   pages: write
   id-token: write
 
-# Do not cancel a deploy that is already uploading. A newer push waits.
-concurrency:
-  group: pages
-  cancel-in-progress: false
-
 jobs:
   build:
     name: Build web site
     runs-on: ubuntu-latest
     timeout-minutes: 360
+    # Newer push cancels this build, including one that is only queued.
+    concurrency:
+      group: pages-build
+      cancel-in-progress: true
     env:
       TRUNK_VERSION: "0.21.14"
       CARGO_TERM_COLOR: always
       CARGO_PROFILE_WASM_RELEASE_LTO: thin
-      CARGO_BUILD_JOBS: "1"
+      # 2, not 4: 4 vCPU / 16 GiB ubuntu-latest. See the memory note above.
+      CARGO_BUILD_JOBS: "2"
       # Baked into the HTML badge and, via option_env!, into the wasm About text.
       # github.sha is the commit being published, including workflow_dispatch.
       PHOTOCRAFT_BUILD_SHA: ${{ github.sha }}
@@ -118,6 +208,11 @@ jobs:
     name: Deploy to GitHub Pages
     needs: build
     runs-on: ubuntu-latest
+    # Do not cancel an upload already in flight. A queued older deploy is
+    # dropped when a newer one is waiting. See the concurrency note above.
+    concurrency:
+      group: pages-deploy
+      cancel-in-progress: false
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}

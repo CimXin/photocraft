@@ -280,16 +280,19 @@ ArtCraft logo.
 The `wasm-release` profile uses fat LTO. `.github/workflows/ci.yml` builds that on
 `ubuntu-latest` (the `web` job). The link or `wasm-opt` can still be killed with `SIGKILL`
 / `cannot allocate memory` on a smaller machine — that is what the Dockerfile's builder
-flags are for, and the Pages workflow sets them so a memory kill does not fail the deploy:
-
-- `CARGO_PROFILE_WASM_RELEASE_LTO=thin`
-- `CARGO_BUILD_JOBS=1`
+flags are for. The Pages workflow keeps thin LTO for the same reason. It sets
+`CARGO_BUILD_JOBS=2`, not 1 and not 4: a standard GitHub-hosted runner has 4 vCPU and
+16 GiB, and two thin-LTO `rustc` processes leave room for the multi-gigabyte codegen of
+`engine` / `ui-egui` / `gpu` and for `wasm-opt`. Four concurrent jobs is what the
+Dockerfile offers a larger builder, and what already fills a 12 GiB FreeBSD VM.
 
 `package.sh` still fails the build if any file exceeds 24 MiB. The wasm can be slightly
-larger than a release zip built with fat LTO. A runner that has the memory can switch back
-(`CARGO_PROFILE_WASM_RELEASE_LTO=fat`, `CARGO_BUILD_JOBS=4`, as the Dockerfile documents).
-A cold build is serial and can take one to two hours; the workflow's cargo and trunk caches
-shorten the next push. The job's time limit is 360 minutes.
+larger than a release zip built with fat LTO. With the cargo and trunk caches, a main
+push that rebuilds the site has been about 10–21 minutes (measured October 2026), not
+the one-to-two-hour serial cold builds from before those caches. Most of a warm run is
+one crate (`photocraft-web`) plus `wasm-opt`, which stay single-job; `CARGO_BUILD_JOBS=2`
+shortens the independent crates around them, and a cache miss by much more. The job's
+time limit is 360 minutes.
 
 ### CJK text on the web
 
