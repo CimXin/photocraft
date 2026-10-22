@@ -38,13 +38,13 @@ fn main() {
 #[cfg(test)]
 mod tests {
     /// A WebAssembly module that never downloads (or doesn't match the page) runs no Rust, so the
-    /// page itself replaces the endless "Loading" with what may have gone wrong and a way to
-    /// retry, without a hand-written script.
+    /// page itself replaces the endless loading line with what may have gone wrong and a way to
+    /// retry, without a hand-written script. The wording is the page's default locale, zh-Hans.
     #[test]
     fn loading_page_offers_a_reload_when_startup_stalls() {
         let html = include_str!("../index.html");
         let (_, hint) = html.split_once("<p id=\"photocraft_stalled\">").expect("stalled-startup hint in the loading element");
-        assert!(hint.contains("failed to") && hint.contains("<a href=\"\">Reload</a>"), "{hint}");
+        assert!(hint.contains("下载失败") && hint.contains("<a href=\"\">重新加载</a>"), "{hint}");
         assert!(html.contains("animation: photocraft-stalled"), "the hint appears after a delay");
         assert!(!html.contains("<script"), "trunk injects the generated loader; the page has no script of its own");
     }
