@@ -7,6 +7,7 @@
 # target. The zip holds a self-contained static site in photocraft-web-<version>/ that works
 # from any URL path and inside an <iframe>. Hosting notes: packaging/web/README.md.
 # GitHub Pages publishes that directory (not the zip): packaging/web/pages-stage.sh.
+# index.html gets a corner badge (version + short commit) from build-badge.sh.
 #
 # The site holds the app's wasm gzipped and cut into parts (app/), started by the small
 # photocraft-web-boot module, so no file is larger than a part however large the app grows
@@ -114,6 +115,10 @@ if ! grep -q 'href="favicon.ico"' "$WORK/$NAME/index.html" || ! grep -q 'rel="ap
   echo "error: index.html does not link the favicon" >&2
   exit 1
 fi
+# shellcheck source=build-badge.sh
+. "$HERE/build-badge.sh"
+stamp_build_badge "$WORK/$NAME/index.html"
+assert_build_badge "$WORK/$NAME/index.html"
 largest=0
 while IFS= read -r file; do
   bytes=$(size "$file")

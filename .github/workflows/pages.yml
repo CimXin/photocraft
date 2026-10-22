@@ -6,8 +6,10 @@
 # After a successful deploy the site is https://cimxin.github.io/photocraft/
 #
 # Build: packaging/web/package.sh (Trunk release builds of photocraft-web and
-# photocraft-web-boot, wasm cut into parts, relative URLs). Then
-# packaging/web/pages-stage.sh adds the license notices and drops ArtCraft marks.
+# photocraft-web-boot, wasm cut into parts, relative URLs). The page gets a
+# bottom-right build badge (workspace version + short GITHUB_SHA) from
+# packaging/web/build-badge.sh, visible while the wasm loads and after startup.
+# Then packaging/web/pages-stage.sh adds the license notices and drops ArtCraft marks.
 # Upload the staged directory itself — not the zip, and not an extra photocraft/
 # folder. Project Pages already serves the artifact at /<repo>/.
 #
@@ -46,6 +48,9 @@ jobs:
       CARGO_TERM_COLOR: always
       CARGO_PROFILE_WASM_RELEASE_LTO: thin
       CARGO_BUILD_JOBS: "1"
+      # Baked into the HTML badge and, via option_env!, into the wasm About text.
+      # github.sha is the commit being published, including workflow_dispatch.
+      PHOTOCRAFT_BUILD_SHA: ${{ github.sha }}
     steps:
       - uses: actions/checkout@v4
       # Fails fast when Pages is still off (enablement stays false: GITHUB_TOKEN cannot
@@ -91,11 +96,16 @@ jobs:
           site="$(packaging/web/pages-stage.sh)"
           echo "site=$site" >> "$GITHUB_OUTPUT"
           echo "Staged $site"
+          badge="$(sed -n 's/.*id="photocraft_build"[^>]*>\([^<]*\)<.*/\1/p' "$site/index.html")"
+          [ -n "$badge" ] || { echo "error: staged index.html has no build badge" >&2; exit 1; }
+          echo "Version badge: $badge"
           find "$site" -type f -printf '%s\t%p\n' | sort -n
           {
             echo "### GitHub Pages"
             echo
             echo "Expected URL: https://cimxin.github.io/photocraft/"
+            echo
+            echo "Version badge: \`$badge\`"
             echo
             echo "Open that HTTPS URL (WebGPU needs a secure context)."
           } >> "$GITHUB_STEP_SUMMARY"

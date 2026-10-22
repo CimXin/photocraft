@@ -5,7 +5,7 @@ static site in `photocraft-web-<version>/`:
 
 | File | What it is |
 |---|---|
-| `index.html` | The page. It loads everything through relative URLs. |
+| `index.html` | The page. It loads everything through relative URLs. A bottom-right badge shows the version and short commit. |
 | `photocraft-web-boot-<hash>.js`, `photocraft-web-boot-<hash>_bg.wasm` | A small module (about 120 KB) that starts the app from its parts, with its wasm-bindgen glue |
 | `app/photocraft-web-<hash>.part-aa`, `-ab`, … | The app's WebAssembly, gzipped and cut into parts of at most 20 MiB (see [Sizes](#sizes)) |
 | `app/parts.txt` | The parts, in order |
@@ -249,6 +249,15 @@ The workflow runs on every push to `main`, and when started by hand. It builds w
 Relative asset URLs (`public_url = "./"`) are what makes that path work. Open the site with
 the trailing slash: `https://cimxin.github.io/photocraft/`.
 
+The published page carries a small bottom-right badge, `v<version> · <commit>`, so a visitor
+can see which build is running without opening About. `packaging/web/build-badge.sh` writes it
+when the site is packaged. The version is `[workspace.package] version`. The commit is
+`PHOTOCRAFT_BUILD_SHA` (the Pages workflow sets that from `GITHUB_SHA`; otherwise `git
+rev-parse HEAD`). The badge is plain HTML: it is on screen while the wasm is still
+downloading, it is not inside the loading message the app removes, and it ignores pointer
+events so it does not block the canvas. The full commit and the UTC build date are on the
+element's `title`. An unsafe commit string is omitted rather than written into the page.
+
 ### HTTPS and WebGPU
 
 Pages serves the site over HTTPS. WebGPU and the clipboard only work in a secure context
@@ -306,7 +315,8 @@ The Pages workflow does neither: the subset is part of the site.
 ### Dry run without a wasm build
 
 Staging can be checked on its own. It builds a fake site, checks the license files, checks
-that a root-absolute URL is rejected, and checks that ArtCraft mark files are removed:
+that a root-absolute URL is rejected, checks that ArtCraft mark files are removed, and checks
+that the version badge is stamped once, outside the loading message:
 
 ```sh
 packaging/web/pages-stage.sh --self-test

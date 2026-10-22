@@ -6,6 +6,8 @@
 #   VERSION                 [workspace.package] version from Cargo.toml (override: PHOTOCRAFT_VERSION)
 #   DIST                    output directory for release artifacts (default: $ROOT/dist/release)
 #   PHOTOCRAFT_BUILD_SHA    git commit baked into the binaries (see crates/engine/src/build_info.rs)
+#                           and the web page badge (packaging/web/build-badge.sh).
+#                           Set it (CI uses GITHUB_SHA); otherwise git, then GITHUB_SHA.
 #   PHOTOCRAFT_BUILD_DATE   UTC build date, YYYY-MM-DD
 #   CARGO_TARGET_DIR        cargo's target dir (default: $ROOT/target)
 
@@ -34,6 +36,10 @@ export DIST
 
 if [ -z "${PHOTOCRAFT_BUILD_SHA:-}" ]; then
   PHOTOCRAFT_BUILD_SHA="$(git -C "$ROOT" rev-parse HEAD 2>/dev/null || true)"
+fi
+# A source tree copied without .git (some CI packaging steps) still has the commit in GITHUB_SHA.
+if [ -z "${PHOTOCRAFT_BUILD_SHA:-}" ] && [ -n "${GITHUB_SHA:-}" ]; then
+  PHOTOCRAFT_BUILD_SHA="$GITHUB_SHA"
 fi
 export PHOTOCRAFT_BUILD_SHA
 export PHOTOCRAFT_BUILD_DATE="${PHOTOCRAFT_BUILD_DATE:-$(date -u +%Y-%m-%d)}"
