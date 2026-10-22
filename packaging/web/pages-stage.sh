@@ -13,6 +13,8 @@ set -euo pipefail
 # shellcheck source=../env.sh
 . "$(dirname "${BASH_SOURCE[0]}")/../env.sh"
 HERE="$ROOT/packaging/web"
+# shellcheck source=build-badge.sh
+. "$HERE/build-badge.sh"
 
 # Copy every file matching the globs. An unmatched glob is an error, so a renamed
 # license file cannot vanish from the published site unnoticed.
@@ -90,6 +92,10 @@ stage() {
     echo "error: README.txt contains an image tag" >&2
     return 1
   fi
+
+  # Version + commit, visible before the wasm loads and after #photocraft_loading is removed.
+  stamp_build_badge "$site/index.html" || return 1
+  assert_build_badge "$site/index.html" || return 1
 }
 
 self_test() {
@@ -108,6 +114,7 @@ self_test() {
 <body>
 <script src="./photocraft-web-boot.js"></script>
 <a href="./app/parts.txt">parts</a>
+<div id="photocraft_loading"><p>正在加载 PhotoCraft</p></div>
 </body></html>
 EOF
   printf 'ico' >"$site/favicon.ico"
@@ -126,6 +133,11 @@ EOF
   [ -f "$site/app/parts.txt" ]
   [ -f "$site/favicon.ico" ]
   grep -q 'href="favicon.ico"' "$site/index.html"
+  assert_build_badge "$site/index.html"
+  # Stamping again replaces the badge; it must not stack a second copy.
+  stage "$site"
+  assert_build_badge "$site/index.html"
+  badge_outside_loading "$site/index.html"
   grep -q 'based on PhotoCraft by the ArtCraft team' "$site/README.txt"
   grep -q 'not affiliated with' "$site/README.txt"
   grep -q 'LICENSE-MIT' "$site/NOTICE"
@@ -143,7 +155,81 @@ EOF
   fi
   grep -q 'root-absolute' "$tmp/err"
 
+  badge_rejects_unsafe_tokens "$tmp"
+  badge_on_boot_page "$tmp/boot.html"
+
   echo "pages-stage self-test ok" >&2
+}
+
+# The app deletes #photocraft_loading. The badge has to be a sibling, or the
+# running editor would have no version on screen.
+badge_outside_loading() {
+  local html="$1"
+  if ! awk '
+    /id="photocraft_loading"/ { inload = 1 }
+    inload && /id="photocraft_build"/ { found = 1 }
+    inload && /<\/div>/ { inload = 0 }
+    END { exit found ? 1 : 0 }
+  ' "$html"; then
+    echo "error: self-test: build badge is inside #photocraft_loading" >&2
+    exit 1
+  fi
+  grep -q 'id="photocraft_build"' "$html"
+}
+
+# A commit or date with markup must be dropped, not written into the page.
+badge_rejects_unsafe_tokens() {
+  local tmp="$1" saved_sha saved_date html
+  saved_sha="${PHOTOCRAFT_BUILD_SHA:-}"
+  saved_date="${PHOTOCRAFT_BUILD_DATE:-}"
+  html="$tmp/badge.html"
+  printf '%s\n' '<!DOCTYPE html><html><body><div id="photocraft_loading"><p>正在加载</p></div></body></html>' >"$html"
+
+  PHOTOCRAFT_BUILD_SHA=9ca4b8a1b2c3d4e5f678901234567890abcdef12
+  PHOTOCRAFT_BUILD_DATE=2026-10-22
+  stamp_build_badge "$html"
+  grep -F "data-version=\"${VERSION}\"" "$html" >/dev/null
+  grep -F 'data-sha="9ca4b8a"' "$html" >/dev/null
+  grep -F 'data-date="2026-10-22"' "$html" >/dev/null
+  grep -F "v${VERSION} · 9ca4b8a" "$html" >/dev/null
+  grep -F 'pointer-events:none' "$html" >/dev/null
+  badge_outside_loading "$html"
+  stamp_build_badge "$html"
+  [ "$(grep -c 'id="photocraft_build"' "$html")" -eq 1 ]
+
+  PHOTOCRAFT_BUILD_SHA='9ca4b8a"><script>alert(1)</script>'
+  PHOTOCRAFT_BUILD_DATE='2026-10-22<img>'
+  stamp_build_badge "$html"
+  if grep -F 'script' "$html" || grep -F '<img' "$html"; then
+    echo "error: self-test: badge wrote an unsafe commit or date" >&2
+    exit 1
+  fi
+  if grep -F 'data-sha=' "$html" || grep -F 'data-date=' "$html"; then
+    echo "error: self-test: unsafe commit or date was kept on the badge" >&2
+    exit 1
+  fi
+  grep -F ">v${VERSION}<" "$html" >/dev/null
+
+  PHOTOCRAFT_BUILD_SHA="$saved_sha"
+  PHOTOCRAFT_BUILD_DATE="$saved_date"
+}
+
+# The page Trunk actually ships, not only the one-line fixture: the badge goes
+# after the loading node, and the source file itself stays unstamped.
+badge_on_boot_page() {
+  local html="$1" src
+  src="$ROOT/apps/photocraft-web-boot/index.html"
+  [ -f "$src" ] || { echo "error: $src missing" >&2; exit 1; }
+  if grep -q 'id="photocraft_build"' "$src" "$ROOT/apps/photocraft-web/index.html"; then
+    echo "error: source index.html must not carry a build badge (it would go stale)" >&2
+    exit 1
+  fi
+  cp "$src" "$html"
+  stamp_build_badge "$html"
+  assert_build_badge "$html"
+  badge_outside_loading "$html"
+  grep -F 'id="photocraft_stalled"' "$html" >/dev/null
+  grep -F 'href="favicon.ico"' "$html" >/dev/null
 }
 
 if [ "${1:-}" = "--self-test" ]; then

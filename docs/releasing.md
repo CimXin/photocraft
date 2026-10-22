@@ -287,7 +287,9 @@ and lists the tarball, which checks the layout without a FreeBSD machine.
 `packaging/web/package.sh` runs `trunk build --release` for the app (`apps/photocraft-web`, into
 `dist/web`) and for the module that starts it (`apps/photocraft-web-boot`, into `dist/web-boot`).
 It gzips the app's wasm, cuts it into parts of at most 20 MiB and zips the boot module's page with
-the parts, sample `_headers` and `.htaccess` files and the hosting guide. The site only uses
+the parts, sample `_headers` and `.htaccess` files and the hosting guide. The page's bottom-right
+badge (`packaging/web/build-badge.sh`) is the workspace version and a short `PHOTOCRAFT_BUILD_SHA`,
+so a deployed site can be matched to a commit. The Pages workflow sets that variable from `GITHUB_SHA`. The site only uses
 relative URLs, so it works under any path and in an iframe. The wasm builds with the
 size-optimized `wasm-release` Cargo profile (set in `apps/photocraft-web/index.html`), and the
 script fails if any file in the site exceeds 24 MiB, below Cloudflare's 25 MiB per-file limit;
